@@ -7,15 +7,15 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
 
 func TestSessionFile(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", "/state")
-	if got, err := sessionFile("fox-2.v1_x"); err != nil || got != "/state/gemini-image/sessions/fox-2.v1_x" {
+	if got, err := sessionFile("fox-2.v1_x"); err != nil || got != "/state/gemini-image/sessions/fox-2.v1_x.json" {
 		t.Errorf("got %q, %v", got, err)
 	}
 	for _, bad := range []string{"..", ".hidden", "a/b", "../x", "a b", ""} {
@@ -74,9 +74,23 @@ func TestSessionTurns(t *testing.T) {
 	if !strings.Contains(reqs[1], `"previous_interaction_id":"v1_first"`) {
 		t.Errorf("second turn didn't continue the first: %s", reqs[1])
 	}
-	saved, err := os.ReadFile(filepath.Join(state, "gemini-image", "sessions", "fox"))
-	if err != nil || string(saved) != "v1_second\n" {
-		t.Errorf("saved session = %q, %v; want v1_second", saved, err)
+	saved, err := loadSession(filepath.Join(state, "gemini-image", "sessions", "fox.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	flags := map[string]string{
+		"env-file": "/dev/null", "model": "m", "preview": "false", "size": "", "aspect-ratio": "",
+		"search": "", "thoughts": "false", "session": "fox", "output": out,
+	}
+	want := &session{Interactions: []interaction{
+		{ID: "v1_first", Prompt: "a fox", File: out, Parameters: genParams{Model: "m"}, Flags: flags},
+		{ID: "v1_second", Prompt: "add a scarf", File: out, Parameters: genParams{Model: "m"}, Flags: flags},
+	}}
+	if !reflect.DeepEqual(saved, want) {
+		t.Errorf("saved session:\n%+v\nwant:\n%+v", saved, want)
+	}
+	if saved.lastID() != "v1_second" {
+		t.Errorf("lastID = %q", saved.lastID())
 	}
 	if stderr.Len() > 0 {
 		t.Errorf("unexpected stderr: %s", stderr.String())

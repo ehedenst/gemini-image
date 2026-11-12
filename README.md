@@ -85,11 +85,37 @@ gemini-image generate --session fox "Give the fox a red scarf"
 gemini-image generate --session fox "Now make it night, with northern lights"
 ```
 
-The first run with a new name starts the session. After every successful run, the CLI saves the
-interaction ID in `$XDG_STATE_HOME/gemini-image/sessions/NAME` (by default
-`~/.local/state/gemini-image/sessions/NAME`). The next run sends that ID as
-`previous_interaction_id`, so the model sees the earlier prompts and images. A failed run doesn't
-advance the session. To start over, use a new name or delete the session file.
+The first run with a new name starts the session. Every successful run is added to the session's
+history in `$XDG_STATE_HOME/gemini-image/sessions/NAME.json` (by default
+`~/.local/state/gemini-image/sessions/NAME.json`). The next run sends the ID of the latest
+interaction as `previous_interaction_id`, so the model sees the earlier prompts and images. A failed
+run doesn't advance the session. To start over, use a new name or delete the session file.
+
+Each entry records the interaction ID, the prompt, the full path of the generated image, the
+effective generation parameters (from flags, environment or `.env`) and the flags given on the
+command line. `--api-key` is never stored.
+
+```json
+{
+  "interactions": [
+    {
+      "id": "v1_ChdfQ1gy…",
+      "prompt": "A watercolor fox in a snowy forest",
+      "file": "/Users/me/images/image-20261112-213015.jpeg",
+      "parameters": { "model": "gemini-nano-banana-2.1", "aspect_ratio": "16:9" },
+      "flags": { "aspect-ratio": "16:9", "session": "fox" }
+    }
+  ]
+}
+```
+
+To look back at a session, run `gemini-image session NAME`. For each turn it prints the prompt,
+shows the image in the terminal (when the terminal supports it) and prints the image path. Images
+that were moved or deleted get a warning on stderr.
+
+```sh
+gemini-image session fox
+```
 
 The conversation itself is stored by the API, not locally. If the API no longer has the previous
 interaction, continuing fails with an API error; start a new session then. Names may contain
@@ -173,7 +199,8 @@ cmd/
   stream.go      streamed generation: events -> progress, final image
   status.go      animated status line on stderr
   color.go       ANSI colors for terminal output
-  session.go     --session: saving and loading the last interaction ID
+  session.go     --session: the session history file
+  show.go        session subcommand: show a session's prompts and images
   search.go      Google Search grounding: tool, suggestions, citations
   env.go         .env loading and "!command" values
 internal/

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -98,13 +99,15 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 		return usageError{err}
 	}
 	var sessionPath, previousID string
+	var sess *session
 	if name, _ := cmd.Flags().GetString("session"); name != "" {
 		if sessionPath, err = sessionFile(name); err != nil {
 			return usageError{err}
 		}
-		if previousID, err = loadSession(sessionPath); err != nil {
+		if sess, err = loadSession(sessionPath); err != nil {
 			return fmt.Errorf("reading session: %w", err)
 		}
+		previousID = sess.lastID()
 	}
 
 	apiKey, err := setting(cmd, "api-key")
@@ -163,11 +166,25 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		return fmt.Errorf("writing image: %w", err)
 	}
-	if sessionPath != "" {
+	if sess != nil {
 		// Warn rather than fail: the image is already saved.
 		err := errors.New("the API sent no interaction ID")
 		if p.interactionID != "" {
-			err = saveSession(sessionPath, p.interactionID)
+			abs, _ := filepath.Abs(path) // only fails if the working directory is gone
+			sess.Interactions = append(sess.Interactions, interaction{
+				ID:     p.interactionID,
+				Prompt: args[0],
+				File:   abs,
+				Parameters: genParams{
+					Model:       model,
+					AspectRatio: viper.GetString("aspect-ratio"),
+					Size:        viper.GetString("size"),
+					Search:      viper.GetString("search"),
+					Thoughts:    p.thoughts,
+				},
+				Flags: givenFlags(cmd.Flags()),
+			})
+			err = saveSession(sessionPath, sess)
 		}
 		if err != nil {
 			fmt.Fprintln(cmd.ErrOrStderr(), paint(p.color, sgrYellow, "warning:"), "session not updated:", err)
