@@ -15,20 +15,22 @@ import (
 
 func TestFitColumns(t *testing.T) {
 	for _, c := range []struct {
-		name                               string
-		cols, rows, xpix, ypix, imgW, imgH int
-		want                               int
+		name                                        string
+		cols, rows, xpix, ypix, imgW, imgH, reserve int
+		want                                        int
 	}{
-		{"fits natively", 200, 50, 1600, 800, 320, 160, 0},
+		{"fits natively", 200, 50, 1600, 800, 320, 160, 2, 0},
 		// 10x20px cells: 200x20 cells, limited by width
-		{"too wide", 100, 50, 1000, 1000, 2000, 400, 100},
+		{"too wide", 100, 50, 1000, 1000, 2000, 400, 2, 100},
 		// 10x20px cells: 40x100 cells, limited to 48 rows -> 0.48 * 40 cols
-		{"too tall", 100, 50, 1000, 1000, 400, 2000, 19},
+		{"too tall", 100, 50, 1000, 1000, 400, 2000, 2, 19},
+		// same, but 5 rows reserved for grounding lines: 45 rows -> 0.45 * 40 cols
+		{"too tall, more reserved", 100, 50, 1000, 1000, 400, 2000, 5, 18},
 		// assumed 8x16px cells: 128x64 cells, limited to 22 rows -> 0.34375 * 128 cols
-		{"no pixel info", 80, 24, 0, 0, 1024, 1024, 44},
-		{"unknown size", 0, 0, 0, 0, 100, 100, 0},
+		{"no pixel info", 80, 24, 0, 0, 1024, 1024, 2, 44},
+		{"unknown size", 0, 0, 0, 0, 100, 100, 2, 0},
 	} {
-		if got := fitColumns(c.cols, c.rows, c.xpix, c.ypix, c.imgW, c.imgH); got != c.want {
+		if got := fitColumns(c.cols, c.rows, c.xpix, c.ypix, c.imgW, c.imgH, c.reserve); got != c.want {
 			t.Errorf("%s: got %d, want %d", c.name, got, c.want)
 		}
 	}

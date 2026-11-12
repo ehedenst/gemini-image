@@ -8,4 +8,4 @@ import (
 )
 
 // Preview is not supported on this platform.
-func Preview(_ *os.File, _ []byte) error { return errors.ErrUnsupported }
+func Preview(_ *os.File, _ []byte, _ int) error { return errors.ErrUnsupported }

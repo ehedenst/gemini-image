@@ -35,10 +35,12 @@ const (
 	maxDAScan = 4096
 )
 
-// Preview draws img (PNG, JPEG or GIF) on out, scaled to fit the terminal.
+// Preview draws img (PNG, JPEG or GIF) on out, scaled to fit the terminal
+// with reserveRows rows left free for the lines printed after it, so those
+// lines don't push anything above the image off the screen.
 // It returns errors.ErrUnsupported when out isn't a terminal or the terminal
 // doesn't support the kitty graphics protocol.
-func Preview(out *os.File, img []byte) error {
+func Preview(out *os.File, img []byte, reserveRows int) error {
 	if !term.IsTerminal(int(out.Fd())) || os.Getenv("TERM") == "dumb" {
 		return errors.ErrUnsupported
 	}
@@ -52,7 +54,7 @@ func Preview(out *os.File, img []byte) error {
 	}
 	cols := 0
 	if ws, err := unix.IoctlGetWinsize(int(out.Fd()), unix.TIOCGWINSZ); err == nil {
-		cols = fitColumns(int(ws.Col), int(ws.Row), int(ws.Xpixel), int(ws.Ypixel), cfg.Width, cfg.Height)
+		cols = fitColumns(int(ws.Col), int(ws.Row), int(ws.Xpixel), int(ws.Ypixel), cfg.Width, cfg.Height, reserveRows)
 	}
 	return write(out, data, cols)
 }
@@ -131,10 +133,10 @@ func toPNG(img []byte) ([]byte, image.Config, error) {
 }
 
 // fitColumns returns how many terminal columns the image should span so it
-// fits in the window (leaving two rows for the prompt and output), or 0 to
-// draw it at its native size. xpix/ypix are the window size in pixels and
-// may be 0 if the terminal doesn't report them.
-func fitColumns(cols, rows, xpix, ypix, imgW, imgH int) int {
+// fits in the window with reserve rows left free, or 0 to draw it at its
+// native size. xpix/ypix are the window size in pixels and may be 0 if the
+// terminal doesn't report them.
+func fitColumns(cols, rows, xpix, ypix, imgW, imgH, reserve int) int {
 	if cols <= 0 || rows <= 0 || imgW <= 0 || imgH <= 0 {
 		return 0
 	}
@@ -143,7 +145,7 @@ func fitColumns(cols, rows, xpix, ypix, imgW, imgH int) int {
 		cellW, cellH = float64(xpix)/float64(cols), float64(ypix)/float64(rows)
 	}
 	imgCols, imgRows := float64(imgW)/cellW, float64(imgH)/cellH
-	scale := min(1, float64(cols)/imgCols, float64(max(rows-2, 1))/imgRows)
+	scale := min(1, float64(cols)/imgCols, float64(max(rows-reserve, 1))/imgRows)
 	if scale >= 1 {
 		return 0
 	}

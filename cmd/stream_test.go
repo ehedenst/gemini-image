@@ -74,6 +74,7 @@ func run(t *testing.T, body string) ([]byte, string, string, error) {
 		Input: genai.Ptr(interactions.NewInteractionsInput("a cat")),
 	}
 	data, mime, err := streamImage(context.Background(), client, req, p)
+	p.printGrounding() // as runGenerate does after the preview
 	if !strings.Contains(*reqBody, `"stream":true`) {
 		t.Errorf("request did not ask for a stream: %s", *reqBody)
 	}

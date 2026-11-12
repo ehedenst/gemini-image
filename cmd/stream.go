@@ -26,10 +26,12 @@ type progress struct {
 	preview    *os.File    // where interim images are drawn; nil disables
 	hyperlinks bool        // errOut is a terminal: print links as OSC 8 hyperlinks
 
-	thought      strings.Builder // thought text not yet printed
-	shownPreview []byte          // last interim image drawn, to avoid repeats
-	printed      map[string]bool // suggestions and citations already printed
-	events       io.Writer       // --debug-events: request and raw events as JSON lines
+	thought        strings.Builder // thought text not yet printed
+	shownPreview   []byte          // last interim image drawn, to avoid repeats
+	printed        map[string]bool // suggestions and citations already collected
+	grounding      []string        // suggestion and source lines, printed after the image
+	gotSuggestions bool            // at least one set of search suggestions was collected
+	events         io.Writer       // --debug-events: request and raw events as JSON lines
 }
 
 func (p *progress) setStatus(msg string) { p.status.Set(msg) }
@@ -61,7 +63,7 @@ func (p *progress) thoughtImage(data string) {
 		return
 	}
 	p.status.Do(func() {
-		if err := kitty.Preview(p.preview, img); err == nil {
+		if err := kitty.Preview(p.preview, img, 2); err == nil {
 			p.shownPreview = img
 		} else {
 			fmt.Fprintln(p.errOut, "[interim image]")
@@ -181,6 +183,7 @@ func (c *collector) handle(ev *interactions.InteractionSSEStreamEvent) error {
 		c.final = &done.Interaction
 		c.status = string(done.Interaction.Status)
 		c.groundingFromSteps(done.Interaction.Steps)
+		c.p.noteMissingSuggestions(searchCount(done.Interaction.Usage))
 	}
 	return nil
 }

@@ -96,8 +96,8 @@ func (p *progress) searching(queries []string) {
 	}
 }
 
-// searchResult prints the search suggestions that Google requires to be shown
-// with grounded results. Each snippet is printed once.
+// searchResult collects the search suggestions that Google requires to be
+// shown with grounded results. Each snippet is collected once.
 func (p *progress) searchResult(results []interactions.GoogleSearchResult) {
 	for _, r := range results {
 		if r.SearchSuggestions == nil || p.seen(*r.SearchSuggestions) {
@@ -107,16 +107,51 @@ func (p *progress) searchResult(results []interactions.GoogleSearchResult) {
 		if len(links) == 0 {
 			continue
 		}
-		p.status.Do(func() {
-			fmt.Fprintln(p.errOut, "Google Search suggestions:")
-			for _, l := range links {
-				fmt.Fprintln(p.errOut, "  "+p.link(l))
-			}
-		})
+		p.grounding = append(p.grounding, "Google Search suggestions:")
+		for _, l := range links {
+			p.grounding = append(p.grounding, "  "+p.link(l))
+		}
+		p.gotSuggestions = true
 	}
 }
 
-// citations prints the sources cited for the generated content, once each.
+// searchCount returns how many Google searches the usage reports.
+func searchCount(u *interactions.Usage) int {
+	n := 0
+	for _, g := range u.GetGroundingToolCount() {
+		if g.Type != nil && *g.Type == interactions.GroundingToolCountTypeGoogleSearch && g.Count != nil {
+			n += *g.Count
+		}
+	}
+	return n
+}
+
+// noteMissingSuggestions adds a note when the model searched but the API sent
+// no search suggestions, which happens now and then. Without it the missing
+// suggestions would look like a bug in the CLI.
+func (p *progress) noteMissingSuggestions(searches int) {
+	if searches == 0 || p.gotSuggestions {
+		return
+	}
+	plural := "es"
+	if searches == 1 {
+		plural = ""
+	}
+	p.grounding = append(p.grounding, fmt.Sprintf(
+		"note: the model used Google Search (%d search%s), but the API sent no search suggestions", searches, plural))
+}
+
+// printGrounding prints the collected search suggestions and sources. It runs
+// after the image preview, so they appear right below the image instead of
+// being scrolled off the screen by it.
+func (p *progress) printGrounding() {
+	for _, line := range p.grounding {
+		fmt.Fprintln(p.errOut, line)
+	}
+	p.grounding = nil
+}
+
+// citations collects the sources cited for the generated content, once each.
 func (p *progress) citations(annotations []interactions.Annotation) {
 	for _, a := range annotations {
 		c := a.URLCitation
@@ -127,7 +162,7 @@ func (p *progress) citations(annotations []interactions.Annotation) {
 		if c.Title != nil && *c.Title != "" {
 			l.text = *c.Title
 		}
-		p.status.Do(func() { fmt.Fprintln(p.errOut, "Source: "+p.link(l)) })
+		p.grounding = append(p.grounding, "Source: "+p.link(l))
 	}
 }
 

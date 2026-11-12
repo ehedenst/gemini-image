@@ -133,6 +133,7 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	data, mime, err := streamImage(ctx, client, req, p)
 	p.status.Stop()
 	if err != nil {
+		p.printGrounding()
 		return fmt.Errorf("generating image: %w", err)
 	}
 
@@ -149,11 +150,14 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	}
 
 	// The last interim image is usually the final one; don't draw it twice.
+	// Leave room below the image for the grounding lines, the path and the
+	// shell prompt.
 	if p.preview != nil && !bytes.Equal(data, p.shownPreview) {
-		if err := kitty.Preview(p.preview, data); err != nil && !errors.Is(err, errors.ErrUnsupported) {
+		if err := kitty.Preview(p.preview, data, len(p.grounding)+2); err != nil && !errors.Is(err, errors.ErrUnsupported) {
 			fmt.Fprintln(cmd.ErrOrStderr(), "warning: preview failed:", err)
 		}
 	}
+	p.printGrounding()
 	fmt.Fprintln(cmd.OutOrStdout(), path)
 	return nil
 }

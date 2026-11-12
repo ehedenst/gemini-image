@@ -100,8 +100,19 @@ weather, scores and other real-world facts:
 While it searches, the status line shows the queries. Google's
 [terms](https://ai.google.dev/gemini-api/terms#grounding-with-google-search) require grounded results
 to be shown together with the Google Search suggestions that come with them, so the CLI always prints
-the suggestions to stderr. On a terminal they're clickable links; otherwise they're printed as
-`text <url>`. Any sources the model cites are printed too.
+the suggestions to stderr. It prints them after the image and the terminal preview, just before the
+file path, and leaves room for them below the preview so they stay on screen. On a terminal they're
+clickable links; otherwise they're printed as `text <url>`. Any sources the model cites are printed
+too.
+
+The model decides for itself whether to search. If it can draw the prompt from what it already knows,
+it may not search at all, and then there are no suggestions to show. Image search mostly happens when
+the prompt needs visual references, or when it asks for them ("Search Google Images for reference
+photos of …"). Image search alone can't look up facts such as a weather forecast; use `web` for that.
+
+Now and then the API reports that the model searched but sends no search suggestions. In that case
+the CLI prints `note: the model used Google Search (N searches), but the API sent no search
+suggestions`, so it's clear the suggestions are missing from the response rather than dropped by the CLI.
 
 ### Terminal preview
 

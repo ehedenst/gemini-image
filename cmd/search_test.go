@@ -61,6 +61,12 @@ func TestSearchStatusOrder(t *testing.T) {
 		if last := draws[strings.LastIndex(draws, "\r"):]; !strings.Contains(last, "finishing") {
 			t.Errorf("%s: final status = %q, want finishing", name, last)
 		}
+		// Suggestions are held back during the stream and printed after the
+		// image preview, so the preview can't scroll them off the screen.
+		if strings.Contains(errOut.String(), "Google Search suggestions:") {
+			t.Errorf("%s: suggestions printed before the image was shown", name)
+		}
+		p.printGrounding()
 		if !strings.Contains(errOut.String(), "Google Search suggestions:") {
 			t.Errorf("%s: suggestions not printed", name)
 		}
@@ -132,5 +138,49 @@ func TestStreamImageWithSearch(t *testing.T) {
 	}
 	if strings.Count(out, "suggestions") != 1 {
 		t.Error("suggestions printed more than once")
+	}
+}
+
+// TestNoteMissingSuggestions: the API sometimes reports searches in the usage
+// but sends no search steps; the CLI then says so instead of staying silent.
+func TestNoteMissingSuggestions(t *testing.T) {
+	b64 := base64.StdEncoding.EncodeToString(testPNG(t, color.Black))
+	img := []string{
+		`{"index":0,"step":{"type":"model_output"},"event_type":"step.start"}`,
+		`{"index":0,"delta":{"type":"image","mime_type":"image/png","data":"` + b64 + `"},"event_type":"step.delta"}`,
+		`{"index":0,"event_type":"step.stop"}`,
+	}
+	suggestions := []string{
+		`{"index":1,"step":{"call_id":"s1","type":"google_search_result"},"event_type":"step.start"}`,
+		`{"index":1,"delta":{"type":"google_search_result","result":[{"search_suggestions":"<a class=\"chip\" href=\"https://www.google.com/search?q=x\">x</a>"}]},"event_type":"step.delta"}`,
+		`{"index":1,"event_type":"step.stop"}`,
+	}
+	completed := func(searches string) string {
+		usage := ""
+		if searches != "" {
+			usage = `,"usage":{"grounding_tool_count":[{"type":"google_search","count":` + searches + `}]}`
+		}
+		return `{"interaction":{"id":"v1","status":"completed"` + usage + `},"event_type":"interaction.completed"}`
+	}
+	for name, c := range map[string]struct {
+		events []string
+		want   string // expected note, "" for none
+	}{
+		"searched, no suggestions":   {append(slices.Clone(img), completed("2")), "note: the model used Google Search (2 searches), but the API sent no search suggestions\n"},
+		"one search, no suggestions": {append(slices.Clone(img), completed("1")), "note: the model used Google Search (1 search), but the API sent no search suggestions\n"},
+		"searched, with suggestions": {append(slices.Concat(img, suggestions), completed("2")), ""},
+		"didn't search":              {append(slices.Clone(img), completed("")), ""},
+	} {
+		_, _, out, err := run(t, sse(c.events...))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		note := ""
+		if i := strings.Index(out, "note: "); i >= 0 {
+			note = out[i:]
+		}
+		if note != c.want {
+			t.Errorf("%s: note = %q, want %q", name, note, c.want)
+		}
 	}
 }
