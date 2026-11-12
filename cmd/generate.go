@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"encoding/base64"
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -12,9 +12,9 @@ import (
 	"github.com/ehedenst/gemini-image/internal/kitty"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"golang.org/x/term"
 	"google.golang.org/genai"
 	"google.golang.org/genai/interactions/models/interactions"
-	"google.golang.org/genai/interactions/models/operations"
 )
 
 var generateCmd = &cobra.Command{
@@ -39,6 +39,11 @@ func init() {
 	f.String("size", "", "image size: "+strings.Join(imageSizes, ", ")+" (env GEMINI_SIZE, default model's choice)")
 	f.Bool("preview", true, "show the image in the terminal if it supports the kitty graphics protocol (env GEMINI_PREVIEW)")
 	_ = viper.BindPFlag("preview", f.Lookup("preview"))
+	f.Bool("thoughts", false, "print the model's thought summaries and preview its interim images (env GEMINI_THOUGHTS)")
+	_ = viper.BindPFlag("thoughts", f.Lookup("thoughts"))
+	f.String("search", "", "ground the image in Google Search: web, image or web,image (env GEMINI_SEARCH)")
+	_ = viper.BindPFlag("search", f.Lookup("search"))
+	_ = generateCmd.RegisterFlagCompletionFunc("search", cobra.FixedCompletions([]string{"web", "image", "web,image"}, cobra.ShellCompDirectiveNoFileComp))
 	_ = viper.BindPFlag("aspect-ratio", f.Lookup("aspect-ratio"))
 	_ = viper.BindPFlag("size", f.Lookup("size"))
 	_ = generateCmd.RegisterFlagCompletionFunc("aspect-ratio", cobra.FixedCompletions(aspectRatios, cobra.ShellCompDirectiveNoFileComp))
@@ -83,6 +88,10 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return usageError{err}
 	}
+	tools, err := searchTools(viper.GetString("search"))
+	if err != nil {
+		return usageError{err}
+	}
 
 	apiKey, err := setting(cmd, "api-key")
 	if err != nil {
@@ -101,39 +110,27 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("creating client: %w", err)
 	}
 
-	res, err := client.Interactions.Create(ctx, operations.CreateInteractionRequest{
-		Body: operations.NewCreateInteractionRequestBody(interactions.CreateModelInteraction{
-			Model:          interactions.Model(model),
-			Input:          genai.Ptr(interactions.NewInteractionsInput(args[0])),
-			ResponseFormat: format,
-		}),
-	})
+	req := interactions.CreateModelInteraction{
+		Model:          interactions.Model(model),
+		Input:          genai.Ptr(interactions.NewInteractionsInput(args[0])),
+		ResponseFormat: format,
+		Tools:          tools,
+	}
+	p := newProgress(cmd)
+	if p.thoughts {
+		req.GenerationConfig = &interactions.GenerationConfig{ThinkingSummaries: interactions.ThinkingSummariesAuto.ToPointer()}
+	}
+	data, mime, err := streamImage(ctx, client, req, p)
+	p.status.Stop()
 	if err != nil {
 		return fmt.Errorf("generating image: %w", err)
-	}
-
-	it := res.Interaction
-	if it == nil || it.OutputImage == nil || it.OutputImage.Data == nil {
-		msg := "no image in response"
-		if it != nil {
-			msg += fmt.Sprintf(" (status %s)", it.Status)
-			if it.OutputText != nil {
-				msg += ": " + *it.OutputText
-			}
-		}
-		return errors.New(msg)
-	}
-
-	data, err := base64.StdEncoding.DecodeString(*it.OutputImage.Data)
-	if err != nil {
-		return fmt.Errorf("decoding image: %w", err)
 	}
 
 	path, _ := cmd.Flags().GetString("output")
 	if path == "" {
 		ext := "png"
-		if mt := it.OutputImage.MimeType; mt != nil {
-			ext = strings.TrimPrefix(string(*mt), "image/")
+		if mime != "" {
+			ext = strings.TrimPrefix(mime, "image/")
 		}
 		path = fmt.Sprintf("image-%s.%s", time.Now().Format("20060102-150405"), ext)
 	}
@@ -141,12 +138,26 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("writing image: %w", err)
 	}
 
-	// Only preview when stdout is the real terminal, never when piped or captured.
-	if out, ok := cmd.OutOrStdout().(*os.File); ok && viper.GetBool("preview") {
-		if err := kitty.Preview(out, data); err != nil && !errors.Is(err, errors.ErrUnsupported) {
+	// The last interim image is usually the final one; don't draw it twice.
+	if p.preview != nil && !bytes.Equal(data, p.shownPreview) {
+		if err := kitty.Preview(p.preview, data); err != nil && !errors.Is(err, errors.ErrUnsupported) {
 			fmt.Fprintln(cmd.ErrOrStderr(), "warning: preview failed:", err)
 		}
 	}
 	fmt.Fprintln(cmd.OutOrStdout(), path)
 	return nil
+}
+
+// newProgress sets up progress reporting: a status line when stderr is a
+// terminal, and previews only when stdout is a real file (never when captured).
+func newProgress(cmd *cobra.Command) *progress {
+	p := &progress{errOut: cmd.ErrOrStderr(), thoughts: viper.GetBool("thoughts")}
+	if out, ok := cmd.OutOrStdout().(*os.File); ok && viper.GetBool("preview") {
+		p.preview = out
+	}
+	if f, ok := cmd.ErrOrStderr().(*os.File); ok && term.IsTerminal(int(f.Fd())) {
+		p.status = newStatusLine(f, "connecting")
+		p.hyperlinks = true
+	}
+	return p
 }

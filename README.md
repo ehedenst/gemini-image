@@ -25,6 +25,8 @@ go build -ldflags "-X github.com/ehedenst/gemini-image/cmd.version=$(git describ
 | Aspect ratio | `--aspect-ratio` | `GEMINI_ASPECT_RATIO` | model's choice           |
 | Image size   | `--size`         | `GEMINI_SIZE`         | model's choice           |
 | Preview      | `--preview`      | `GEMINI_PREVIEW`      | `true`                   |
+| Thoughts     | `--thoughts`     | `GEMINI_THOUGHTS`     | `false`                  |
+| Search       | `--search`       | `GEMINI_SEARCH`       | off                      |
 
 Flags take precedence over environment variables. You can get an API key at
 <https://aistudio.google.com/apikey>.
@@ -56,6 +58,8 @@ The command runs only when the value is needed and no flag overrides it.
 gemini-image generate "A watercolor fox in a snowy forest"
 gemini-image generate -o fox.png "A watercolor fox in a snowy forest"
 gemini-image generate --aspect-ratio 16:9 --size 2K "A mountain panorama at dawn"
+gemini-image generate --thoughts "An infographic explaining photosynthesis"
+gemini-image generate --search web --aspect-ratio 16:9 "This week's weather in Stockholm as a chart"
 ```
 
 | Flag             | Description                                                                         |
@@ -64,8 +68,40 @@ gemini-image generate --aspect-ratio 16:9 --size 2K "A mountain panorama at dawn
 | `--aspect-ratio` | `1:1`, `2:3`, `3:2`, `3:4`, `4:3`, `4:5`, `5:4`, `9:16`, `16:9`, `21:9`, `1:4`, `4:1`, `1:8`, `8:1` |
 | `--size`         | `512`, `1K`, `2K`, `4K`                                                             |
 | `--preview`      | Show the image in the terminal (default `true`; disable with `--preview=false`).   |
+| `--thoughts`     | Print the model's thought summaries and preview its interim images.                |
+| `--search`       | Ground the image in Google Search: `web`, `image` or `web,image`.                   |
 
 Not every model supports every aspect ratio or size. If you leave a flag out, the model's default applies.
+
+### Progress and thoughts
+
+The response is streamed. While the image is generated, a status line on stderr shows the current
+stage (`thinking`, `rendering`, …) and the elapsed time. The status line only appears when stderr
+is a terminal.
+
+Gemini 3 image models think before rendering and may draw up to two interim images to try out the
+composition. With `--thoughts`, the CLI asks for thought summaries and prints them to stderr as they
+arrive. It also previews the interim images in the terminal; where previews aren't available, it
+prints `[interim image]` instead. If the last interim image is the same as the final image, it isn't
+drawn twice. Older models such as `gemini-2.5-flash-image` don't think, so they only report status.
+
+### Grounding with Google Search
+
+With `--search`, the model can look things up before it draws. This is useful for current events,
+weather, scores and other real-world facts:
+
+- `web` searches the web for facts.
+- `image` uses Google Image Search results as visual references. Only `gemini-nano-banana-2.1` and
+  `gemini-3.1-flash-image` support it.
+- `web,image` enables both.
+
+`gemini-3.1-flash-lite-image` doesn't support grounding at all.
+
+While it searches, the status line shows the queries. Google's
+[terms](https://ai.google.dev/gemini-api/terms#grounding-with-google-search) require grounded results
+to be shown together with the Google Search suggestions that come with them, so the CLI always prints
+the suggestions to stderr. On a terminal they're clickable links; otherwise they're printed as
+`text <url>`. Any sources the model cites are printed too.
 
 ### Terminal preview
 
@@ -86,7 +122,7 @@ open "$(gemini-image generate 'A red bicycle')"
 Exit codes: `0` success, `1` runtime or API error, `2` invalid arguments, flags or settings (including a
 missing API key), `130` interrupted.
 
-Shell completion (including values for `--aspect-ratio` and `--size`) is available through
+Shell completion (including values for `--aspect-ratio`, `--size` and `--search`) is available through
 `gemini-image completion <bash|zsh|fish|powershell>`.
 
 ## Development
@@ -96,6 +132,9 @@ main.go          entry point, only calls cmd.Execute()
 cmd/
   root.go        root command, flags, Viper/env setup, exit codes
   generate.go    generate subcommand
+  stream.go      streamed generation: events -> progress, final image
+  status.go      animated status line on stderr
+  search.go      Google Search grounding: tool, suggestions, citations
   env.go         .env loading and "!command" values
 internal/
   kitty/         terminal support detection and kitty graphics output

@@ -15,6 +15,7 @@ import (
 	"image/png"
 	"io"
 	"os"
+	"sync"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -41,12 +42,7 @@ func Preview(out *os.File, img []byte) error {
 	if !term.IsTerminal(int(out.Fd())) || os.Getenv("TERM") == "dumb" {
 		return errors.ErrUnsupported
 	}
-	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
-	if err != nil {
-		return errors.ErrUnsupported
-	}
-	defer tty.Close()
-	if !supported(tty) {
+	if !terminalSupported() {
 		return errors.ErrUnsupported
 	}
 
@@ -60,6 +56,17 @@ func Preview(out *os.File, img []byte) error {
 	}
 	return write(out, data, cols)
 }
+
+// terminalSupported queries the controlling terminal once per process; later
+// calls reuse the answer so queries can't race an earlier query's reader.
+var terminalSupported = sync.OnceValue(func() bool {
+	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
+	if err != nil {
+		return false
+	}
+	defer tty.Close()
+	return supported(tty)
+})
 
 // supported queries the terminal and reports whether it answered the
 // graphics query before the device attributes request.
