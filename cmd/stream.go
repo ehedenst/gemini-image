@@ -33,6 +33,7 @@ type progress struct {
 	grounding      []string        // suggestion and source lines, printed after the image
 	gotSuggestions bool            // at least one set of search suggestions was collected
 	events         io.Writer       // --debug-events: request and raw events as JSON lines
+	interactionID  string          // ID of the interaction, for continuing a --session
 }
 
 func (p *progress) setStatus(msg string) { p.status.Set(msg) }
@@ -146,7 +147,8 @@ func (c *collector) handle(ev *interactions.InteractionSSEStreamEvent) error {
 		}
 		return fmt.Errorf("generation failed: %s", msg)
 	}
-	if ev.GetDataInteractionCreated() != nil {
+	if cr := ev.GetDataInteractionCreated(); cr != nil {
+		c.p.interactionID = cr.Interaction.ID
 		c.p.setStatus("starting")
 	}
 	if u := ev.GetDataInteractionStatusUpdate(); u != nil {
@@ -189,6 +191,9 @@ func (c *collector) handle(ev *interactions.InteractionSSEStreamEvent) error {
 	}
 	if done := ev.GetDataInteractionCompleted(); done != nil {
 		c.final = &done.Interaction
+		if done.Interaction.ID != "" {
+			c.p.interactionID = done.Interaction.ID
+		}
 		c.status = string(done.Interaction.Status)
 		c.groundingFromSteps(done.Interaction.Steps)
 		c.p.noteMissingSuggestions(searchCount(done.Interaction.Usage))

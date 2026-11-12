@@ -70,8 +70,30 @@ gemini-image generate --search web --aspect-ratio 16:9 "This week's weather in S
 | `--preview`      | Show the image in the terminal (default `true`; disable with `--preview=false`).   |
 | `--thoughts`     | Print the model's thought summaries and preview its interim images.                |
 | `--search`       | Ground the image in Google Search: `web`, `image` or `web,image`.                   |
+| `--session`      | Continue (or start) a named multi-turn editing session.                             |
 
 Not every model supports every aspect ratio or size. If you leave a flag out, the model's default applies.
+
+### Multi-turn editing
+
+With `--session NAME`, each run continues the conversation of the previous run with the same name,
+so you can refine an image step by step:
+
+```sh
+gemini-image generate --session fox "A watercolor fox in a snowy forest"
+gemini-image generate --session fox "Give the fox a red scarf"
+gemini-image generate --session fox "Now make it night, with northern lights"
+```
+
+The first run with a new name starts the session. After every successful run, the CLI saves the
+interaction ID in `$XDG_STATE_HOME/gemini-image/sessions/NAME` (by default
+`~/.local/state/gemini-image/sessions/NAME`). The next run sends that ID as
+`previous_interaction_id`, so the model sees the earlier prompts and images. A failed run doesn't
+advance the session. To start over, use a new name or delete the session file.
+
+The conversation itself is stored by the API, not locally. If the API no longer has the previous
+interaction, continuing fails with an API error; start a new session then. Names may contain
+letters, digits, `.`, `_` and `-`.
 
 ### Progress and thoughts
 
@@ -151,6 +173,7 @@ cmd/
   stream.go      streamed generation: events -> progress, final image
   status.go      animated status line on stderr
   color.go       ANSI colors for terminal output
+  session.go     --session: saving and loading the last interaction ID
   search.go      Google Search grounding: tool, suggestions, citations
   env.go         .env loading and "!command" values
 internal/

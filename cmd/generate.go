@@ -22,7 +22,9 @@ var generateCmd = &cobra.Command{
 	Short: "Generate an image from a text prompt",
 	Example: `  gemini-image generate "A watercolor fox in a snowy forest"
   gemini-image generate -o fox.png "A watercolor fox in a snowy forest"
-  gemini-image generate --aspect-ratio 16:9 --size 2K "A mountain panorama at dawn"`,
+  gemini-image generate --aspect-ratio 16:9 --size 2K "A mountain panorama at dawn"
+  gemini-image generate --session fox "A watercolor fox in a snowy forest"
+  gemini-image generate --session fox "Make the fox wear a red scarf"`,
 	Args: func(cmd *cobra.Command, args []string) error {
 		if err := cobra.ExactArgs(1)(cmd, args); err != nil {
 			return usageError{err}
@@ -43,6 +45,7 @@ func init() {
 	_ = viper.BindPFlag("thoughts", f.Lookup("thoughts"))
 	f.String("search", "", "ground the image in Google Search: web, image or web,image (env GEMINI_SEARCH)")
 	_ = viper.BindPFlag("search", f.Lookup("search"))
+	f.String("session", "", "continue the named multi-turn editing session, or start it (state in $XDG_STATE_HOME/gemini-image/sessions)")
 	f.String("debug-events", "", "write the request and every raw stream event to `file` as JSON lines")
 	_ = f.MarkHidden("debug-events")
 	_ = generateCmd.RegisterFlagCompletionFunc("search", cobra.FixedCompletions([]string{"web", "image", "web,image"}, cobra.ShellCompDirectiveNoFileComp))
@@ -94,6 +97,15 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return usageError{err}
 	}
+	var sessionPath, previousID string
+	if name, _ := cmd.Flags().GetString("session"); name != "" {
+		if sessionPath, err = sessionFile(name); err != nil {
+			return usageError{err}
+		}
+		if previousID, err = loadSession(sessionPath); err != nil {
+			return fmt.Errorf("reading session: %w", err)
+		}
+	}
 
 	apiKey, err := setting(cmd, "api-key")
 	if err != nil {
@@ -117,6 +129,9 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 		Input:          genai.Ptr(interactions.NewInteractionsInput(args[0])),
 		ResponseFormat: format,
 		Tools:          tools,
+	}
+	if previousID != "" {
+		req.PreviousInteractionID = &previousID
 	}
 	p := newProgress(cmd)
 	if path, _ := cmd.Flags().GetString("debug-events"); path != "" {
@@ -147,6 +162,16 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	}
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		return fmt.Errorf("writing image: %w", err)
+	}
+	if sessionPath != "" {
+		// Warn rather than fail: the image is already saved.
+		err := errors.New("the API sent no interaction ID")
+		if p.interactionID != "" {
+			err = saveSession(sessionPath, p.interactionID)
+		}
+		if err != nil {
+			fmt.Fprintln(cmd.ErrOrStderr(), paint(p.color, sgrYellow, "warning:"), "session not updated:", err)
+		}
 	}
 
 	// The last interim image is usually the final one; don't draw it twice.
