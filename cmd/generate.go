@@ -25,6 +25,7 @@ var generateCmd = &cobra.Command{
   gemini-image generate -o fox.png "A watercolor fox in a snowy forest"
   gemini-image generate --aspect-ratio 16:9 --size 2K "A mountain panorama at dawn"
   gemini-image generate -i fox.png -i hat.jpg "Put the hat on the fox"
+  gemini-image generate --camera "Turn me into a watercolor painting"
   gemini-image generate --session fox "A watercolor fox in a snowy forest"
   gemini-image generate --session fox "Make the fox wear a red scarf"
   gemini-image generate --session fox --step 1 "Make the fox wear a blue hat instead"`,
@@ -50,6 +51,8 @@ func init() {
 	_ = viper.BindPFlag("search", f.Lookup("search"))
 	f.String("session", "", "continue the named multi-turn editing session, or start it (state in $XDG_STATE_HOME/gemini-image/sessions)")
 	f.StringArrayP("image", "i", nil, fmt.Sprintf("reference image `file` to include with the prompt; repeat for more (at most %d)", maxImages))
+	f.String("camera", "", "take a photo with the camera and add it as a reference image; --camera=`device` picks a camera (macOS: name or index, Linux: /dev/videoN)")
+	f.Lookup("camera").NoOptDefVal = defaultCamera
 	f.Int("step", 0, "with --session, continue from this step (1 = first) instead of the last one")
 	f.String("debug-events", "", "write the request and every raw stream event to `file` as JSON lines")
 	_ = f.MarkHidden("debug-events")
@@ -98,11 +101,6 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return usageError{err}
 	}
-	images, _ := cmd.Flags().GetStringArray("image")
-	input, err := promptInput(args[0], images)
-	if err != nil {
-		return err
-	}
 	tools, err := searchTools(viper.GetString("search"))
 	if err != nil {
 		return usageError{err}
@@ -139,6 +137,28 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	model, err := setting(cmd, "model")
 	if err != nil {
 		return fmt.Errorf("resolving model: %w", err)
+	}
+
+	// Built after all other checks, so a bad flag doesn't turn the camera on.
+	images, _ := cmd.Flags().GetStringArray("image")
+	var camera func() ([]byte, error)
+	if cmd.Flags().Changed("camera") {
+		device, _ := cmd.Flags().GetString("camera")
+		camera = func() ([]byte, error) {
+			fmt.Fprintln(cmd.ErrOrStderr(), "taking a photo with the camera…")
+			photo, err := cameraSnapshot(ctx, device)
+			// Show the photo before generating, so it's clear what was sent.
+			if out, ok := cmd.OutOrStdout().(*os.File); ok && err == nil && viper.GetBool("preview") {
+				if err := kitty.Preview(out, photo, 2); err != nil && !errors.Is(err, errors.ErrUnsupported) {
+					fmt.Fprintln(cmd.ErrOrStderr(), paint(useColor(cmd.ErrOrStderr()), sgrYellow, "warning:"), "preview failed:", err)
+				}
+			}
+			return photo, err
+		}
+	}
+	input, err := promptInput(args[0], images, camera)
+	if err != nil {
+		return err
 	}
 
 	client, err := genai.NewClient(ctx, &genai.ClientConfig{APIKey: apiKey, Backend: genai.BackendGeminiAPI})

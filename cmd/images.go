@@ -49,13 +49,19 @@ func imageType(path string, data []byte) (interactions.ImageContentMimeType, err
 }
 
 // promptInput builds the request input: the prompt alone, or the prompt
-// followed by the reference images, inlined as base64.
-func promptInput(prompt string, images []string) (*interactions.InteractionsInput, error) {
-	if len(images) == 0 {
+// followed by the reference images, inlined as base64. camera, if not nil,
+// takes a photo that is added last; it is only called once the files have
+// been read, so a bad -i doesn't turn the camera on for nothing.
+func promptInput(prompt string, images []string, camera func() ([]byte, error)) (*interactions.InteractionsInput, error) {
+	n := len(images)
+	if camera != nil {
+		n++
+	}
+	if n == 0 {
 		return genai.Ptr(interactions.NewInteractionsInput(prompt)), nil
 	}
-	if len(images) > maxImages {
-		return nil, usageError{fmt.Errorf("too many reference images: %d, at most %d", len(images), maxImages)}
+	if n > maxImages {
+		return nil, usageError{fmt.Errorf("too many reference images: %d, at most %d", n, maxImages)}
 	}
 	contents := []interactions.Content{interactions.NewContent(interactions.TextContent{Text: prompt})}
 	for _, path := range images {
@@ -70,6 +76,16 @@ func promptInput(prompt string, images []string) (*interactions.InteractionsInpu
 		contents = append(contents, interactions.NewContent(interactions.ImageContent{
 			Data:     genai.Ptr(base64.StdEncoding.EncodeToString(data)),
 			MimeType: t.ToPointer(),
+		}))
+	}
+	if camera != nil {
+		data, err := camera()
+		if err != nil {
+			return nil, err
+		}
+		contents = append(contents, interactions.NewContent(interactions.ImageContent{
+			Data:     genai.Ptr(base64.StdEncoding.EncodeToString(data)),
+			MimeType: interactions.ImageContentMimeTypeImageJpeg.ToPointer(),
 		}))
 	}
 	return genai.Ptr(interactions.NewInteractionsInput(contents)), nil

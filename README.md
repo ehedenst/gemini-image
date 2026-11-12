@@ -72,6 +72,7 @@ gemini-image generate -i man.jpg -i woman.jpg "The two of them having coffee in 
 | `--thoughts`     | Print the model's thought summaries and preview its interim images.                |
 | `--search`       | Ground the image in Google Search: `web`, `image` or `web,image`.                   |
 | `-i, --image`    | Reference image to include with the prompt. Repeat for more, at most 14.           |
+| `--camera`       | Take a photo with the camera and add it as a reference image.                       |
 | `--session`      | Continue (or start) a named multi-turn editing session.                             |
 | `--step`         | With `--session`: continue from this step (1 = first) instead of the last one.      |
 
@@ -90,6 +91,31 @@ accepts. Per the docs, `gemini-nano-banana-2.1` and `gemini-3.1-flash-image` kee
 characters and 10 objects faithful, `gemini-3-pro-image` 5 characters and 6 objects, and
 `gemini-2.5-flash-image` works best with up to 3 images. The API reports an error if a model doesn't
 accept what you send.
+
+With `--camera`, the CLI takes a photo with your camera and adds it as the last reference image:
+
+```sh
+gemini-image generate --camera "Turn me into a watercolor painting"
+gemini-image generate --camera="EHEMOB001i Camera" -i hat.jpg "Put this hat on me"
+```
+
+It uses [ffmpeg](https://ffmpeg.org) (`brew install ffmpeg`), on macOS and Linux. Without a value
+it uses the first camera: device 0 on macOS, normally the built-in camera, and `/dev/video0` on
+Linux. To pick another, give its name or index on macOS, or its device file on Linux, with `=`
+(`--camera=1`). `gemini-image cameras` lists them, the default first:
+
+```console
+$ gemini-image cameras
+0  MacBook Pro Camera (default)
+1  MacBook Pro Desk View Camera
+2  iPhone Camera
+```
+
+The photo is taken after a second, once the exposure has settled, and only after all other flags have
+been checked. On macOS it's landscape: 1920×1080, or 1280×720 if the camera can't do that, else the
+camera's default. With `--preview` (the default), the photo is shown in the terminal before the
+image is generated, so you can see what was sent. On macOS the terminal app needs camera access (System Settings → Privacy & Security
+→ Camera). The photo isn't saved; only `camera` in the session flags shows it was used.
 
 In a `--session`, reference images can be added to any turn; the session history records their full
 paths.
@@ -235,6 +261,7 @@ cmd/
   show.go        session subcommand: show a session's prompts and images
   search.go      Google Search grounding: tool, suggestions, citations
   images.go      reference images (-i): type detection, request input
+  camera.go      --camera: photo via ffmpeg; cameras subcommand
   env.go         .env loading and "!command" values
 internal/
   kitty/         terminal support detection and kitty graphics output
