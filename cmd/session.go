@@ -45,6 +45,18 @@ func (s *session) lastID() string {
 	return s.Interactions[len(s.Interactions)-1].ID
 }
 
+// stepID returns the ID of the given step, counting from 1, for --step.
+func (s *session) stepID(name string, step int) (string, error) {
+	n := len(s.Interactions)
+	switch {
+	case n == 0:
+		return "", fmt.Errorf("--step: session %q has no steps yet", name)
+	case step < 1 || step > n:
+		return "", fmt.Errorf("--step: session %q has steps 1 to %d, got %d", name, n, step)
+	}
+	return s.Interactions[step-1].ID, nil
+}
+
 // Session names become file names, so only allow safe characters (and no
 // leading dot, which rules out "." and "..").
 var sessionName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)

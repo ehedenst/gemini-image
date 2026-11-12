@@ -25,7 +25,8 @@ var generateCmd = &cobra.Command{
   gemini-image generate -o fox.png "A watercolor fox in a snowy forest"
   gemini-image generate --aspect-ratio 16:9 --size 2K "A mountain panorama at dawn"
   gemini-image generate --session fox "A watercolor fox in a snowy forest"
-  gemini-image generate --session fox "Make the fox wear a red scarf"`,
+  gemini-image generate --session fox "Make the fox wear a red scarf"
+  gemini-image generate --session fox --step 1 "Make the fox wear a blue hat instead"`,
 	Args: func(cmd *cobra.Command, args []string) error {
 		if err := cobra.ExactArgs(1)(cmd, args); err != nil {
 			return usageError{err}
@@ -47,6 +48,7 @@ func init() {
 	f.String("search", "", "ground the image in Google Search: web, image or web,image (env GEMINI_SEARCH)")
 	_ = viper.BindPFlag("search", f.Lookup("search"))
 	f.String("session", "", "continue the named multi-turn editing session, or start it (state in $XDG_STATE_HOME/gemini-image/sessions)")
+	f.Int("step", 0, "with --session, continue from this step (1 = first) instead of the last one")
 	f.String("debug-events", "", "write the request and every raw stream event to `file` as JSON lines")
 	_ = f.MarkHidden("debug-events")
 	_ = generateCmd.RegisterFlagCompletionFunc("search", cobra.FixedCompletions([]string{"web", "image", "web,image"}, cobra.ShellCompDirectiveNoFileComp))
@@ -100,7 +102,11 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	}
 	var sessionPath, previousID string
 	var sess *session
-	if name, _ := cmd.Flags().GetString("session"); name != "" {
+	name, _ := cmd.Flags().GetString("session")
+	if cmd.Flags().Changed("step") && name == "" {
+		return usageError{errors.New("--step requires --session")}
+	}
+	if name != "" {
 		if sessionPath, err = sessionFile(name); err != nil {
 			return usageError{err}
 		}
@@ -108,6 +114,12 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("reading session: %w", err)
 		}
 		previousID = sess.lastID()
+		if cmd.Flags().Changed("step") {
+			step, _ := cmd.Flags().GetInt("step")
+			if previousID, err = sess.stepID(name, step); err != nil {
+				return usageError{err}
+			}
+		}
 	}
 
 	apiKey, err := setting(cmd, "api-key")

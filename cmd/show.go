@@ -48,7 +48,11 @@ func showSession(out, errOut io.Writer, s *session) {
 	color := useColor(out)
 	f, _ := out.(*os.File)
 	for i, in := range s.Interactions {
-		fmt.Fprintf(out, "%s %s\n", paint(color, sgrLabel, fmt.Sprintf("%d.", i+1)), oneLine(in.Prompt))
+		from := ""
+		if step, ok := in.Flags["step"]; ok { // run with --step: it branched off that step
+			from = " " + paint(color, sgrDim, "(from step "+oneLine(step)+")")
+		}
+		fmt.Fprintf(out, "%s %s%s\n", paint(color, sgrLabel, fmt.Sprintf("%d.", i+1)), oneLine(in.Prompt), from)
 		img, err := os.ReadFile(in.File)
 		switch {
 		case err != nil:

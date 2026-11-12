@@ -71,6 +71,7 @@ gemini-image generate --search web --aspect-ratio 16:9 "This week's weather in S
 | `--thoughts`     | Print the model's thought summaries and preview its interim images.                |
 | `--search`       | Ground the image in Google Search: `web`, `image` or `web,image`.                   |
 | `--session`      | Continue (or start) a named multi-turn editing session.                             |
+| `--step`         | With `--session`: continue from this step (1 = first) instead of the last one.      |
 
 Not every model supports every aspect ratio or size. If you leave a flag out, the model's default applies.
 
@@ -90,6 +91,18 @@ history in `$XDG_STATE_HOME/gemini-image/sessions/NAME.json` (by default
 `~/.local/state/gemini-image/sessions/NAME.json`). The next run sends the ID of the latest
 interaction as `previous_interaction_id`, so the model sees the earlier prompts and images. A failed
 run doesn't advance the session. To start over, use a new name or delete the session file.
+
+To go back to an earlier version, pass `--step N` to continue from step N instead of the latest one.
+Step 1 is the first run of the session. The new run is still added at the end of the history, and
+later runs without `--step` continue from it:
+
+```sh
+gemini-image session fox                          # list the steps
+gemini-image generate --session fox --step 1 "Give the fox a blue hat instead"
+```
+
+The history entry records `--step` in its flags, and `gemini-image session` marks such steps with
+`(from step N)`, so you can see where each one branched off.
 
 Each entry records the interaction ID, the prompt, the full path of the generated image, the
 effective generation parameters (from flags, environment or `.env`) and the flags given on the

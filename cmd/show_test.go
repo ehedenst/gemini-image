@@ -22,6 +22,7 @@ func TestSessionCommand(t *testing.T) {
 	if err := saveSession(path, &session{Interactions: []interaction{
 		{ID: "1", Prompt: "a fox", File: img},
 		{ID: "2", Prompt: "add a\nscarf", File: missing},
+		{ID: "3", Prompt: "a hat instead", File: img, Flags: map[string]string{"session": "fox", "step": "1"}},
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +35,7 @@ func TestSessionCommand(t *testing.T) {
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	want := "1. a fox\n" + img + "\n\n2. add a scarf\n" + missing + "\n\n"
+	want := "1. a fox\n" + img + "\n\n2. add a scarf\n" + missing + "\n\n3. a hat instead (from step 1)\n" + img + "\n\n"
 	if out.String() != want {
 		t.Errorf("stdout:\n%s\nwant:\n%s", out.String(), want)
 	}

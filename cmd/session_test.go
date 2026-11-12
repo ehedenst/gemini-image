@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"image/color"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -26,7 +27,8 @@ func TestSessionFile(t *testing.T) {
 }
 
 // TestSessionTurns runs the CLI twice in one session against a fake API and
-// checks that the second turn continues from the first turn's interaction.
+// checks that the second turn continues from the first turn's interaction,
+// and that a third turn with --step 1 branches off the first.
 func TestSessionTurns(t *testing.T) {
 	state := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", state)
@@ -37,7 +39,7 @@ func TestSessionTurns(t *testing.T) {
 		b, _ := io.ReadAll(r.Body)
 		reqs = append(reqs, string(b))
 		turn++
-		id := []string{"", "v1_first", "v1_second"}[turn]
+		id := []string{"", "v1_first", "v1_second", "v1_third"}[turn]
 		w.Header().Set("Content-Type", "text/event-stream")
 		io.WriteString(w, sse(
 			`{"interaction":{"id":"`+id+`"},"event_type":"interaction.created"}`,
@@ -56,15 +58,30 @@ func TestSessionTurns(t *testing.T) {
 			_ = generateCmd.Flags().Set(f, "")
 		}
 		_ = generateCmd.Flags().Set("preview", "true")
+		_ = generateCmd.Flags().Set("step", "0")
+		generateCmd.Flags().Lookup("step").Changed = false
+		for _, f := range []string{"api-key", "model", "env-file"} {
+			fl := rootCmd.PersistentFlags().Lookup(f)
+			_ = fl.Value.Set(fl.DefValue)
+			fl.Changed = false
+		}
 	})
 	out := filepath.Join(t.TempDir(), "out.png")
 	var stderr bytes.Buffer
 	rootCmd.SetOut(io.Discard)
 	rootCmd.SetErr(&stderr)
-	for _, prompt := range []string{"a fox", "add a scarf"} {
-		rootCmd.SetArgs([]string{"--env-file", "/dev/null", "--api-key", "k", "--model", "m", "generate", "--preview=false", "--size=", "--aspect-ratio=", "--search=", "--thoughts=false", "--session", "fox", "-o", out, prompt})
-		if err := rootCmd.Execute(); err != nil {
-			t.Fatalf("%s: %v (stderr: %s)", prompt, err, stderr.String())
+	generate := func(extra ...string) error {
+		args := []string{"--env-file", "/dev/null", "--api-key", "k", "--model", "m", "generate", "--preview=false", "--size=", "--aspect-ratio=", "--search=", "--thoughts=false", "-o", out}
+		rootCmd.SetArgs(append(args, extra...))
+		return rootCmd.Execute()
+	}
+	for _, args := range [][]string{
+		{"--session", "fox", "a fox"},
+		{"--session", "fox", "add a scarf"},
+		{"--session", "fox", "--step", "1", "add a hat instead"},
+	} {
+		if err := generate(args...); err != nil {
+			t.Fatalf("%v: %v (stderr: %s)", args, err, stderr.String())
 		}
 	}
 
@@ -74,6 +91,9 @@ func TestSessionTurns(t *testing.T) {
 	if !strings.Contains(reqs[1], `"previous_interaction_id":"v1_first"`) {
 		t.Errorf("second turn didn't continue the first: %s", reqs[1])
 	}
+	if !strings.Contains(reqs[2], `"previous_interaction_id":"v1_first"`) {
+		t.Errorf("--step 1 didn't continue the first turn: %s", reqs[2])
+	}
 	saved, err := loadSession(filepath.Join(state, "gemini-image", "sessions", "fox.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -82,17 +102,34 @@ func TestSessionTurns(t *testing.T) {
 		"env-file": "/dev/null", "model": "m", "preview": "false", "size": "", "aspect-ratio": "",
 		"search": "", "thoughts": "false", "session": "fox", "output": out,
 	}
+	stepFlags := maps.Clone(flags)
+	stepFlags["step"] = "1"
 	want := &session{Interactions: []interaction{
 		{ID: "v1_first", Prompt: "a fox", File: out, Parameters: genParams{Model: "m"}, Flags: flags},
 		{ID: "v1_second", Prompt: "add a scarf", File: out, Parameters: genParams{Model: "m"}, Flags: flags},
+		{ID: "v1_third", Prompt: "add a hat instead", File: out, Parameters: genParams{Model: "m"}, Flags: stepFlags},
 	}}
 	if !reflect.DeepEqual(saved, want) {
 		t.Errorf("saved session:\n%+v\nwant:\n%+v", saved, want)
 	}
-	if saved.lastID() != "v1_second" {
+	if saved.lastID() != "v1_third" {
 		t.Errorf("lastID = %q", saved.lastID())
 	}
 	if stderr.Len() > 0 {
 		t.Errorf("unexpected stderr: %s", stderr.String())
+	}
+
+	for _, args := range [][]string{
+		{"--session", "fox", "--step", "0", "x"},
+		{"--session", "fox", "--step", "4", "x"}, // only 3 steps
+		{"--session", "new", "--step", "1", "x"},
+		{"--session", "", "--step", "1", "x"},
+	} {
+		if got := exitCode(generate(args...)); got != 2 {
+			t.Errorf("%v: exit code %d, want 2", args, got)
+		}
+	}
+	if len(reqs) != 3 {
+		t.Errorf("invalid --step reached the API: %d requests", len(reqs))
 	}
 }
