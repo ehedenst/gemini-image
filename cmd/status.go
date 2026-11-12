@@ -3,8 +3,14 @@ package cmd
 import (
 	"fmt"
 	"io"
+	"os"
+	"strings"
 	"sync"
 	"time"
+	"unicode"
+
+	"golang.org/x/term"
+	"golang.org/x/text/width"
 )
 
 // statusLine is an animated one-line status ("⠋ thinking (3s)") redrawn in
@@ -12,6 +18,7 @@ import (
 // what callers use when stderr isn't a terminal.
 type statusLine struct {
 	w     io.Writer
+	cols  func() int // terminal width, read on every draw to follow resizes
 	start time.Time
 	done  chan struct{}
 	wg    sync.WaitGroup
@@ -23,8 +30,15 @@ type statusLine struct {
 
 var spinner = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
-func newStatusLine(w io.Writer, msg string) *statusLine {
-	s := &statusLine{w: w, msg: msg, start: time.Now(), done: make(chan struct{})}
+func newStatusLine(f *os.File, msg string) *statusLine {
+	cols := func() int {
+		w, _, err := term.GetSize(int(f.Fd()))
+		if err != nil || w <= 0 {
+			return 80
+		}
+		return w
+	}
+	s := &statusLine{w: f, cols: cols, msg: msg, start: time.Now(), done: make(chan struct{})}
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
@@ -87,9 +101,57 @@ func (s *statusLine) Stop() {
 	s.clear()
 }
 
+// draw redraws the line, cut to fit the terminal. A line that wrapped could
+// not be cleared with \r, so every redraw would leave a copy behind.
 func (s *statusLine) draw() {
-	elapsed := time.Since(s.start).Truncate(time.Second)
-	fmt.Fprintf(s.w, "\r\x1b[2K%s %s (%s)", spinner[s.frame%len(spinner)], s.msg, elapsed)
+	suffix := fmt.Sprintf(" (%s)", time.Since(s.start).Truncate(time.Second))
+	// spinner + space take 2 columns; keep the last column free as well,
+	// since writing there makes some terminals wrap.
+	msg := truncate(oneLine(s.msg), s.cols()-3-displayWidth(suffix))
+	fmt.Fprintf(s.w, "\r\x1b[2K%s %s%s", spinner[s.frame%len(spinner)], msg, suffix)
+}
+
+// oneLine strips control characters and collapses whitespace, so messages
+// built from API data (e.g. search queries) stay on one line.
+func oneLine(s string) string { return strings.Join(strings.Fields(sanitize(s)), " ") }
+
+// truncate cuts s to at most max display columns, ending in "…" if cut.
+func truncate(s string, max int) string {
+	if displayWidth(s) <= max {
+		return s
+	}
+	if max <= 0 {
+		return ""
+	}
+	w := 0
+	for i, r := range s {
+		if w+runeWidth(r) > max-1 { // leave room for the ellipsis
+			return s[:i] + "…"
+		}
+		w += runeWidth(r)
+	}
+	return s
+}
+
+func displayWidth(s string) int {
+	w := 0
+	for _, r := range s {
+		w += runeWidth(r)
+	}
+	return w
+}
+
+// runeWidth is the number of terminal columns r takes: 2 for wide East Asian
+// characters, 0 for combining marks, 1 otherwise.
+func runeWidth(r rune) int {
+	switch {
+	case unicode.Is(unicode.Mn, r):
+		return 0
+	case width.LookupRune(r).Kind() == width.EastAsianWide, width.LookupRune(r).Kind() == width.EastAsianFullwidth:
+		return 2
+	default:
+		return 1
+	}
 }
 
 func (s *statusLine) clear() { fmt.Fprint(s.w, "\r\x1b[2K") }
