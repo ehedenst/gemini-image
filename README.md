@@ -85,6 +85,11 @@ arrive. It also previews the interim images in the terminal; where previews aren
 prints `[interim image]` instead. If the last interim image is the same as the final image, it isn't
 drawn twice. Older models such as `gemini-2.5-flash-image` don't think, so they only report status.
 
+On a terminal, stderr output is colored: thought headings stand out and the thought text is dimmed,
+search suggestions and sources get colored labels and links, and notes, warnings and errors are
+highlighted. Set `NO_COLOR` to any non-empty value to turn colors off. Output that isn't going to a
+terminal is never colored.
+
 ### Grounding with Google Search
 
 With `--search`, the model can look things up before it draws. This is useful for current events,
@@ -145,6 +150,7 @@ cmd/
   generate.go    generate subcommand
   stream.go      streamed generation: events -> progress, final image
   status.go      animated status line on stderr
+  color.go       ANSI colors for terminal output
   search.go      Google Search grounding: tool, suggestions, citations
   env.go         .env loading and "!command" values
 internal/

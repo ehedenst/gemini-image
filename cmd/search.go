@@ -107,7 +107,7 @@ func (p *progress) searchResult(results []interactions.GoogleSearchResult) {
 		if len(links) == 0 {
 			continue
 		}
-		p.grounding = append(p.grounding, "Google Search suggestions:")
+		p.grounding = append(p.grounding, paint(p.color, sgrLabel, "Google Search suggestions:"))
 		for _, l := range links {
 			p.grounding = append(p.grounding, "  "+p.link(l))
 		}
@@ -137,8 +137,8 @@ func (p *progress) noteMissingSuggestions(searches int) {
 	if searches == 1 {
 		plural = ""
 	}
-	p.grounding = append(p.grounding, fmt.Sprintf(
-		"note: the model used Google Search (%d search%s), but the API sent no search suggestions", searches, plural))
+	p.grounding = append(p.grounding, paint(p.color, sgrYellow, fmt.Sprintf(
+		"note: the model used Google Search (%d search%s), but the API sent no search suggestions", searches, plural)))
 }
 
 // printGrounding prints the collected search suggestions and sources. It runs
@@ -162,7 +162,7 @@ func (p *progress) citations(annotations []interactions.Annotation) {
 		if c.Title != nil && *c.Title != "" {
 			l.text = *c.Title
 		}
-		p.grounding = append(p.grounding, "Source: "+p.link(l))
+		p.grounding = append(p.grounding, paint(p.color, sgrLabel, "Source:")+" "+p.link(l))
 	}
 }
 
@@ -183,7 +183,7 @@ func (p *progress) seen(key string) bool {
 func (p *progress) link(l link) string {
 	l.text, l.url = sanitize(l.text), sanitize(l.url)
 	if p.hyperlinks {
-		return "\x1b]8;;" + l.url + "\x1b\\" + l.text + "\x1b]8;;\x1b\\"
+		return "\x1b]8;;" + l.url + "\x1b\\" + paint(p.color, sgrLink, l.text) + "\x1b]8;;\x1b\\"
 	}
 	if l.text == l.url {
 		return l.url

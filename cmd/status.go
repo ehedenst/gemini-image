@@ -20,6 +20,7 @@ type statusLine struct {
 	w     io.Writer
 	cols  func() int // terminal width, read on every draw to follow resizes
 	start time.Time
+	color bool
 	done  chan struct{}
 	wg    sync.WaitGroup
 
@@ -30,7 +31,7 @@ type statusLine struct {
 
 var spinner = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
-func newStatusLine(f *os.File, msg string) *statusLine {
+func newStatusLine(f *os.File, msg string, color bool) *statusLine {
 	cols := func() int {
 		w, _, err := term.GetSize(int(f.Fd()))
 		if err != nil || w <= 0 {
@@ -38,7 +39,7 @@ func newStatusLine(f *os.File, msg string) *statusLine {
 		}
 		return w
 	}
-	s := &statusLine{w: f, cols: cols, msg: msg, start: time.Now(), done: make(chan struct{})}
+	s := &statusLine{w: f, cols: cols, msg: msg, start: time.Now(), color: color, done: make(chan struct{})}
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
@@ -108,7 +109,8 @@ func (s *statusLine) draw() {
 	// spinner + space take 2 columns; keep the last column free as well,
 	// since writing there makes some terminals wrap.
 	msg := truncate(oneLine(s.msg), s.cols()-3-displayWidth(suffix))
-	fmt.Fprintf(s.w, "\r\x1b[2K%s %s%s", spinner[s.frame%len(spinner)], msg, suffix)
+	// Color after truncating, so escape codes don't count as columns.
+	fmt.Fprintf(s.w, "\r\x1b[2K%s %s%s", paint(s.color, sgrCyan, spinner[s.frame%len(spinner)]), msg, paint(s.color, sgrDim, suffix))
 }
 
 // oneLine strips control characters and collapses whitespace, so messages

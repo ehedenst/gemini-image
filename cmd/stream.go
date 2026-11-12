@@ -25,6 +25,7 @@ type progress struct {
 	thoughts   bool        // print thought summaries and interim images
 	preview    *os.File    // where interim images are drawn; nil disables
 	hyperlinks bool        // errOut is a terminal: print links as OSC 8 hyperlinks
+	color      bool        // colorize errOut
 
 	thought        strings.Builder // thought text not yet printed
 	shownPreview   []byte          // last interim image drawn, to avoid repeats
@@ -49,7 +50,14 @@ func (p *progress) flushThought() {
 	if text == "" {
 		return
 	}
+	if p.color {
+		text = colorThought(text)
+	}
 	p.status.Do(func() { fmt.Fprintf(p.errOut, "%s\n\n", text) })
+}
+
+func (p *progress) interimImageNote() {
+	fmt.Fprintln(p.errOut, paint(p.color, sgrDim, "[interim image]"))
 }
 
 func (p *progress) thoughtImage(data string) {
@@ -59,14 +67,14 @@ func (p *progress) thoughtImage(data string) {
 	p.flushThought()
 	img, err := base64.StdEncoding.DecodeString(data)
 	if err != nil || p.preview == nil {
-		p.status.Do(func() { fmt.Fprintln(p.errOut, "[interim image]") })
+		p.status.Do(p.interimImageNote)
 		return
 	}
 	p.status.Do(func() {
 		if err := kitty.Preview(p.preview, img, 2); err == nil {
 			p.shownPreview = img
 		} else {
-			fmt.Fprintln(p.errOut, "[interim image]")
+			p.interimImageNote()
 		}
 	})
 }

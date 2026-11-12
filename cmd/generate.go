@@ -154,7 +154,7 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	// shell prompt.
 	if p.preview != nil && !bytes.Equal(data, p.shownPreview) {
 		if err := kitty.Preview(p.preview, data, len(p.grounding)+2); err != nil && !errors.Is(err, errors.ErrUnsupported) {
-			fmt.Fprintln(cmd.ErrOrStderr(), "warning: preview failed:", err)
+			fmt.Fprintln(cmd.ErrOrStderr(), paint(p.color, sgrYellow, "warning:"), "preview failed:", err)
 		}
 	}
 	p.printGrounding()
@@ -170,7 +170,8 @@ func newProgress(cmd *cobra.Command) *progress {
 		p.preview = out
 	}
 	if f, ok := cmd.ErrOrStderr().(*os.File); ok && term.IsTerminal(int(f.Fd())) {
-		p.status = newStatusLine(f, "connecting")
+		p.color = useColor(f)
+		p.status = newStatusLine(f, "connecting", p.color)
 		p.hyperlinks = true
 	}
 	return p

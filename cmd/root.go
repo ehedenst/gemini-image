@@ -51,7 +51,7 @@ func Execute() int {
 	defer stop()
 	err := rootCmd.ExecuteContext(ctx)
 	if err != nil {
-		fmt.Fprintln(rootCmd.ErrOrStderr(), "error:", err)
+		fmt.Fprintln(rootCmd.ErrOrStderr(), paint(useColor(rootCmd.ErrOrStderr()), sgrRed, "error:"), err)
 	}
 	return exitCode(err)
 }
