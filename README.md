@@ -24,6 +24,7 @@ go build -ldflags "-X github.com/ehedenst/gemini-image/cmd.version=$(git describ
 | Model        | `--model`        | `GEMINI_MODEL`        | `gemini-nano-banana-2.1` |
 | Aspect ratio | `--aspect-ratio` | `GEMINI_ASPECT_RATIO` | model's choice           |
 | Image size   | `--size`         | `GEMINI_SIZE`         | model's choice           |
+| Preview      | `--preview`      | `GEMINI_PREVIEW`      | `true`                   |
 
 Flags take precedence over environment variables. You can get an API key at
 <https://aistudio.google.com/apikey>.
@@ -62,8 +63,18 @@ gemini-image generate --aspect-ratio 16:9 --size 2K "A mountain panorama at dawn
 | `-o, --output`   | Output file. Default: `image-<timestamp>.<ext>`, extension from the returned type. |
 | `--aspect-ratio` | `1:1`, `2:3`, `3:2`, `3:4`, `4:3`, `4:5`, `5:4`, `9:16`, `16:9`, `21:9`, `1:4`, `4:1`, `1:8`, `8:1` |
 | `--size`         | `512`, `1K`, `2K`, `4K`                                                             |
+| `--preview`      | Show the image in the terminal (default `true`; disable with `--preview=false`).   |
 
 Not every model supports every aspect ratio or size. If you leave a flag out, the model's default applies.
+
+### Terminal preview
+
+If your terminal supports the [kitty graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/),
+the CLI also shows the generated image in the terminal, scaled down to fit the window. Terminals with support
+include kitty, Ghostty, WezTerm and Rex. Before drawing anything, the CLI asks the terminal whether it supports
+the protocol. If it doesn't, or if stdout isn't a terminal (for example when output is piped), it skips the preview.
+JPEG images are converted to PNG for display. Inside tmux, the preview usually doesn't show, because tmux doesn't
+pass the protocol through by default.
 
 The path of the saved image is printed to stdout, and errors go to stderr.
 This makes the tool easy to use in scripts:
@@ -86,6 +97,8 @@ cmd/
   root.go        root command, flags, Viper/env setup, exit codes
   generate.go    generate subcommand
   env.go         .env loading and "!command" values
+internal/
+  kitty/         terminal support detection and kitty graphics output
 ```
 
 ```sh

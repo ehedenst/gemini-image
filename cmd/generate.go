@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ehedenst/gemini-image/internal/kitty"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"google.golang.org/genai"
@@ -36,6 +37,8 @@ func init() {
 	f.StringP("output", "o", "", "output file (default image-<timestamp>.<ext>)")
 	f.String("aspect-ratio", "", "aspect ratio: "+strings.Join(aspectRatios, ", ")+" (env GEMINI_ASPECT_RATIO, default model's choice)")
 	f.String("size", "", "image size: "+strings.Join(imageSizes, ", ")+" (env GEMINI_SIZE, default model's choice)")
+	f.Bool("preview", true, "show the image in the terminal if it supports the kitty graphics protocol (env GEMINI_PREVIEW)")
+	_ = viper.BindPFlag("preview", f.Lookup("preview"))
 	_ = viper.BindPFlag("aspect-ratio", f.Lookup("aspect-ratio"))
 	_ = viper.BindPFlag("size", f.Lookup("size"))
 	_ = generateCmd.RegisterFlagCompletionFunc("aspect-ratio", cobra.FixedCompletions(aspectRatios, cobra.ShellCompDirectiveNoFileComp))
@@ -136,6 +139,13 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	}
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		return fmt.Errorf("writing image: %w", err)
+	}
+
+	// Only preview when stdout is the real terminal, never when piped or captured.
+	if out, ok := cmd.OutOrStdout().(*os.File); ok && viper.GetBool("preview") {
+		if err := kitty.Preview(out, data); err != nil && !errors.Is(err, errors.ErrUnsupported) {
+			fmt.Fprintln(cmd.ErrOrStderr(), "warning: preview failed:", err)
+		}
 	}
 	fmt.Fprintln(cmd.OutOrStdout(), path)
 	return nil
