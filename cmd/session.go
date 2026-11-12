@@ -62,13 +62,9 @@ func (s *session) stepID(name string, step int) (string, error) {
 // leading dot, which rules out "." and "..").
 var sessionName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
-// sessionFile returns where a --session is stored:
-// $XDG_STATE_HOME/gemini-image/sessions/<name>.json, by default under
-// ~/.local/state.
-func sessionFile(name string) (string, error) {
-	if !sessionName.MatchString(name) {
-		return "", fmt.Errorf("invalid session name %q: use letters, digits, '.', '_' and '-'", name)
-	}
+// sessionsDir returns where sessions are stored:
+// $XDG_STATE_HOME/gemini-image/sessions, by default under ~/.local/state.
+func sessionsDir() (string, error) {
 	dir := os.Getenv("XDG_STATE_HOME")
 	if dir == "" {
 		home, err := os.UserHomeDir()
@@ -77,7 +73,20 @@ func sessionFile(name string) (string, error) {
 		}
 		dir = filepath.Join(home, ".local", "state")
 	}
-	return filepath.Join(dir, "gemini-image", "sessions", name+".json"), nil
+	return filepath.Join(dir, "gemini-image", "sessions"), nil
+}
+
+// sessionFile returns the file a --session is stored in: <name>.json in
+// sessionsDir.
+func sessionFile(name string) (string, error) {
+	if !sessionName.MatchString(name) {
+		return "", fmt.Errorf("invalid session name %q: use letters, digits, '.', '_' and '-'", name)
+	}
+	dir, err := sessionsDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, name+".json"), nil
 }
 
 // loadSession reads a session; a missing file is a new, empty session.

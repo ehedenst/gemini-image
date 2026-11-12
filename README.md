@@ -135,7 +135,8 @@ The first run with a new name starts the session. Every successful run is added 
 history in `$XDG_STATE_HOME/gemini-image/sessions/NAME.json` (by default
 `~/.local/state/gemini-image/sessions/NAME.json`). The next run sends the ID of the latest
 interaction as `previous_interaction_id`, so the model sees the earlier prompts and images. A failed
-run doesn't advance the session. To start over, use a new name or delete the session file.
+run doesn't advance the session. To start over, use a new name or delete the session with
+`gemini-image session --delete NAME`.
 
 To go back to an earlier version, pass `--step N` to continue from step N instead of the latest one.
 Step 1 is the first run of the session. The new run is still added at the end of the history, and
@@ -174,6 +175,20 @@ that were moved or deleted get a warning on stderr.
 ```sh
 gemini-image session fox
 ```
+
+`gemini-image sessions` lists all sessions by name with their number of steps and, on a terminal
+that supports it, a small thumbnail of each session's latest image:
+
+```console
+$ gemini-image sessions
+coffee  2 steps
+[thumbnail]
+
+fox  3 steps
+[thumbnail]
+```
+
+`gemini-image session --delete NAME` deletes a session's history. The generated images are kept.
 
 The conversation itself is stored by the API, not locally. If the API no longer has the previous
 interaction, continuing fails with an API error; start a new session then. Names may contain
@@ -258,7 +273,7 @@ cmd/
   status.go      animated status line on stderr
   color.go       ANSI colors for terminal output
   session.go     --session: the session history file
-  show.go        session subcommand: show a session's prompts and images
+  show.go        session and sessions subcommands: show a session, list all sessions
   search.go      Google Search grounding: tool, suggestions, citations
   images.go      reference images (-i): type detection, request input
   camera.go      --camera: photo via ffmpeg; cameras subcommand

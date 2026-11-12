@@ -14,6 +14,7 @@ import (
 	_ "image/jpeg" // register decoder
 	"image/png"
 	"io"
+	"math"
 	"os"
 	"sync"
 	"time"
@@ -52,11 +53,80 @@ func Preview(out *os.File, img []byte, reserveRows int) error {
 	if err != nil {
 		return err
 	}
-	cols := 0
+	size := ""
 	if ws, err := unix.IoctlGetWinsize(int(out.Fd()), unix.TIOCGWINSZ); err == nil {
-		cols = fitColumns(int(ws.Col), int(ws.Row), int(ws.Xpixel), int(ws.Ypixel), cfg.Width, cfg.Height, reserveRows)
+		if cols := fitColumns(int(ws.Col), int(ws.Row), int(ws.Xpixel), int(ws.Ypixel), cfg.Width, cfg.Height, reserveRows); cols > 0 {
+			size = fmt.Sprintf(",c=%d", cols)
+		}
 	}
-	return write(out, data, cols)
+	return write(out, data, size)
+}
+
+// Thumbnail draws img (PNG, JPEG or GIF) on out, about rows terminal rows
+// high, keeping its aspect ratio. The image is shrunk first, so only a small
+// PNG is sent. It returns errors.ErrUnsupported like Preview.
+func Thumbnail(out *os.File, img []byte, rows int) error {
+	if !term.IsTerminal(int(out.Fd())) || os.Getenv("TERM") == "dumb" {
+		return errors.ErrUnsupported
+	}
+	if !terminalSupported() {
+		return errors.ErrUnsupported
+	}
+	m, _, err := image.Decode(bytes.NewReader(img))
+	if err != nil {
+		return fmt.Errorf("reading image: %w", err)
+	}
+	m = shrink(m, thumbnailSide)
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, m); err != nil {
+		return fmt.Errorf("converting to png: %w", err)
+	}
+	// Size by columns, worked out from the cell size, rather than by rows
+	// (r=): column sizing is what Preview uses and is known to work.
+	var ws unix.Winsize
+	if w, err := unix.IoctlGetWinsize(int(out.Fd()), unix.TIOCGWINSZ); err == nil {
+		ws = *w
+	}
+	b := m.Bounds()
+	cols := thumbnailColumns(int(ws.Col), int(ws.Row), int(ws.Xpixel), int(ws.Ypixel), b.Dx(), b.Dy(), rows)
+	return write(out, buf.Bytes(), fmt.Sprintf(",c=%d", cols))
+}
+
+// thumbnailSide is the longest side, in pixels, of the images Thumbnail sends:
+// plenty for ten or so terminal rows, even on high-DPI screens.
+const thumbnailSide = 384
+
+// thumbnailColumns returns how many columns an imgW x imgH image spans when
+// drawn height rows high, at most the window width. cols, rows, xpix and ypix
+// describe the window as in fitColumns; any of them may be 0 if unknown.
+func thumbnailColumns(cols, rows, xpix, ypix, imgW, imgH, height int) int {
+	cellW, cellH := 8.0, 16.0 // typical cell size when the terminal doesn't say
+	if cols > 0 && rows > 0 && xpix > 0 && ypix > 0 {
+		cellW, cellH = float64(xpix)/float64(cols), float64(ypix)/float64(rows)
+	}
+	c := max(1, int(math.Round(float64(height)*cellH*float64(imgW)/float64(imgH)/cellW)))
+	if cols > 0 {
+		c = min(c, cols)
+	}
+	return c
+}
+
+// shrink scales m down so its longest side is at most side pixels, by
+// sampling the nearest pixel. Smaller images are returned as they are.
+func shrink(m image.Image, side int) image.Image {
+	b := m.Bounds()
+	scale := float64(side) / float64(max(b.Dx(), b.Dy()))
+	if scale >= 1 {
+		return m
+	}
+	w, h := max(1, int(float64(b.Dx())*scale)), max(1, int(float64(b.Dy())*scale))
+	out := image.NewRGBA(image.Rect(0, 0, w, h))
+	for y := range h {
+		for x := range w {
+			out.Set(x, y, m.At(b.Min.X+int(float64(x)/scale), b.Min.Y+int(float64(y)/scale)))
+		}
+	}
+	return out
 }
 
 // terminalSupported queries the controlling terminal once per process; later
@@ -153,14 +223,10 @@ func fitColumns(cols, rows, xpix, ypix, imgW, imgH, reserve int) int {
 }
 
 // write sends a PNG to w as kitty graphics escape sequences, transmitted and
-// displayed at the cursor. cols > 0 scales it to that many columns; the
-// terminal keeps the aspect ratio.
-func write(w io.Writer, data []byte, cols int) error {
+// displayed at the cursor. size is "" for the image's own size, or ",c=N" or
+// ",r=N" to scale it to N columns or rows; the terminal keeps the aspect ratio.
+func write(w io.Writer, data []byte, size string) error {
 	enc := base64.StdEncoding.EncodeToString(data)
-	size := ""
-	if cols > 0 {
-		size = fmt.Sprintf(",c=%d", cols)
-	}
 	var b bytes.Buffer
 	for first := true; first || len(enc) > 0; first = false {
 		chunk := enc[:min(chunkSize, len(enc))]

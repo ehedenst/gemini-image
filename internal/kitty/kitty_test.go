@@ -39,7 +39,7 @@ func TestFitColumns(t *testing.T) {
 func TestWriteChunks(t *testing.T) {
 	data := bytes.Repeat([]byte{0xAB}, 10000) // ~13336 base64 chars -> 4 chunks
 	var b bytes.Buffer
-	if err := write(&b, data, 42); err != nil {
+	if err := write(&b, data, ",c=42"); err != nil {
 		t.Fatal(err)
 	}
 	seqs := regexp.MustCompile(`\x1b_G([^;]*);([^\x1b]*)\x1b\\`).FindAllStringSubmatch(b.String(), -1)
@@ -80,5 +80,39 @@ func TestToPNG(t *testing.T) {
 	}
 	if _, _, err := toPNG([]byte("not an image")); err == nil {
 		t.Error("expected error for invalid image")
+	}
+}
+
+func TestShrink(t *testing.T) {
+	for _, c := range []struct{ w, h, wantW, wantH int }{
+		{1376, 768, 384, 214},
+		{768, 1376, 214, 384},
+		{100, 50, 100, 50}, // already small
+	} {
+		m := image.NewRGBA(image.Rect(0, 0, c.w, c.h))
+		if b := shrink(m, thumbnailSide).Bounds(); b.Dx() != c.wantW || b.Dy() != c.wantH {
+			t.Errorf("%dx%d: got %dx%d, want %dx%d", c.w, c.h, b.Dx(), b.Dy(), c.wantW, c.wantH)
+		}
+	}
+}
+
+func TestThumbnailColumns(t *testing.T) {
+	for _, c := range []struct {
+		name                                       string
+		cols, rows, xpix, ypix, imgW, imgH, height int
+		want                                       int
+	}{
+		// 10x20px cells: 10 rows = 200px high, square -> 200px = 20 cols
+		{"square", 100, 50, 1000, 1000, 512, 512, 10, 20},
+		// 16:9 -> 200px high is 356px wide = 36 cols, even from a smaller source
+		{"wide, upscaled", 100, 50, 1000, 1000, 256, 144, 10, 36},
+		{"capped at window width", 30, 50, 300, 1000, 512, 128, 10, 30},
+		// assumed 8x16px cells: 160px high, square -> 20 cols
+		{"no pixel info", 80, 24, 0, 0, 512, 512, 10, 20},
+		{"no window info", 0, 0, 0, 0, 512, 512, 10, 20},
+	} {
+		if got := thumbnailColumns(c.cols, c.rows, c.xpix, c.ypix, c.imgW, c.imgH, c.height); got != c.want {
+			t.Errorf("%s: got %d, want %d", c.name, got, c.want)
+		}
 	}
 }
