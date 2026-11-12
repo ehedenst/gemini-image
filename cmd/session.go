@@ -22,7 +22,8 @@ type session struct {
 type interaction struct {
 	ID         string            `json:"id"`
 	Prompt     string            `json:"prompt"`
-	File       string            `json:"file"` // absolute path of the generated image
+	Images     []string          `json:"images,omitempty"` // absolute paths of the reference images
+	File       string            `json:"file"`             // absolute path of the generated image
 	Parameters genParams         `json:"parameters"`
 	Flags      map[string]string `json:"flags,omitempty"` // flags given on the command line, without --api-key
 }

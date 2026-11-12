@@ -60,6 +60,7 @@ gemini-image generate -o fox.png "A watercolor fox in a snowy forest"
 gemini-image generate --aspect-ratio 16:9 --size 2K "A mountain panorama at dawn"
 gemini-image generate --thoughts "An infographic explaining photosynthesis"
 gemini-image generate --search web --aspect-ratio 16:9 "This week's weather in Stockholm as a chart"
+gemini-image generate -i man.jpg -i woman.jpg "The two of them having coffee in a Paris café"
 ```
 
 | Flag             | Description                                                                         |
@@ -70,10 +71,28 @@ gemini-image generate --search web --aspect-ratio 16:9 "This week's weather in S
 | `--preview`      | Show the image in the terminal (default `true`; disable with `--preview=false`).   |
 | `--thoughts`     | Print the model's thought summaries and preview its interim images.                |
 | `--search`       | Ground the image in Google Search: `web`, `image` or `web,image`.                   |
+| `-i, --image`    | Reference image to include with the prompt. Repeat for more, at most 14.           |
 | `--session`      | Continue (or start) a named multi-turn editing session.                             |
 | `--step`         | With `--session`: continue from this step (1 = first) instead of the last one.      |
 
 Not every model supports every aspect ratio or size. If you leave a flag out, the model's default applies.
+
+### Reference images
+
+With `-i FILE` (repeatable), the prompt is sent together with up to 14 images: to edit a photo, to
+keep people looking the same across images, to include specific objects, or as style references.
+Refer to them in the prompt, for example "the man from the first image". Images are sent in the
+order given, after the prompt.
+
+PNG, JPEG, WebP, HEIC, HEIF, GIF, BMP and TIFF are accepted. The type is detected from the file
+content, or from the extension for HEIC, HEIF and TIFF. The 14-image limit is the most any model
+accepts. Per the docs, `gemini-nano-banana-2.1` and `gemini-3.1-flash-image` keep up to 4
+characters and 10 objects faithful, `gemini-3-pro-image` 5 characters and 6 objects, and
+`gemini-2.5-flash-image` works best with up to 3 images. The API reports an error if a model doesn't
+accept what you send.
+
+In a `--session`, reference images can be added to any turn; the session history records their full
+paths.
 
 ### Multi-turn editing
 
@@ -215,6 +234,7 @@ cmd/
   session.go     --session: the session history file
   show.go        session subcommand: show a session's prompts and images
   search.go      Google Search grounding: tool, suggestions, citations
+  images.go      reference images (-i): type detection, request input
   env.go         .env loading and "!command" values
 internal/
   kitty/         terminal support detection and kitty graphics output

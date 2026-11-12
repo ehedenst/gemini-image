@@ -24,6 +24,7 @@ var generateCmd = &cobra.Command{
 	Example: `  gemini-image generate "A watercolor fox in a snowy forest"
   gemini-image generate -o fox.png "A watercolor fox in a snowy forest"
   gemini-image generate --aspect-ratio 16:9 --size 2K "A mountain panorama at dawn"
+  gemini-image generate -i fox.png -i hat.jpg "Put the hat on the fox"
   gemini-image generate --session fox "A watercolor fox in a snowy forest"
   gemini-image generate --session fox "Make the fox wear a red scarf"
   gemini-image generate --session fox --step 1 "Make the fox wear a blue hat instead"`,
@@ -48,6 +49,7 @@ func init() {
 	f.String("search", "", "ground the image in Google Search: web, image or web,image (env GEMINI_SEARCH)")
 	_ = viper.BindPFlag("search", f.Lookup("search"))
 	f.String("session", "", "continue the named multi-turn editing session, or start it (state in $XDG_STATE_HOME/gemini-image/sessions)")
+	f.StringArrayP("image", "i", nil, fmt.Sprintf("reference image `file` to include with the prompt; repeat for more (at most %d)", maxImages))
 	f.Int("step", 0, "with --session, continue from this step (1 = first) instead of the last one")
 	f.String("debug-events", "", "write the request and every raw stream event to `file` as JSON lines")
 	_ = f.MarkHidden("debug-events")
@@ -96,6 +98,11 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return usageError{err}
 	}
+	images, _ := cmd.Flags().GetStringArray("image")
+	input, err := promptInput(args[0], images)
+	if err != nil {
+		return err
+	}
 	tools, err := searchTools(viper.GetString("search"))
 	if err != nil {
 		return usageError{err}
@@ -141,7 +148,7 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 
 	req := interactions.CreateModelInteraction{
 		Model:          interactions.Model(model),
-		Input:          genai.Ptr(interactions.NewInteractionsInput(args[0])),
+		Input:          input,
 		ResponseFormat: format,
 		Tools:          tools,
 	}
@@ -182,10 +189,17 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 		// Warn rather than fail: the image is already saved.
 		err := errors.New("the API sent no interaction ID")
 		if p.interactionID != "" {
-			abs, _ := filepath.Abs(path) // only fails if the working directory is gone
+			// Abs only fails if the working directory is gone.
+			abs, _ := filepath.Abs(path)
+			var refs []string
+			for _, img := range images {
+				ref, _ := filepath.Abs(img)
+				refs = append(refs, ref)
+			}
 			sess.Interactions = append(sess.Interactions, interaction{
 				ID:     p.interactionID,
 				Prompt: args[0],
+				Images: refs,
 				File:   abs,
 				Parameters: genParams{
 					Model:       model,

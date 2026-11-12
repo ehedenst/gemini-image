@@ -12,6 +12,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/spf13/pflag"
 )
 
 func TestSessionFile(t *testing.T) {
@@ -60,6 +62,9 @@ func TestSessionTurns(t *testing.T) {
 		_ = generateCmd.Flags().Set("preview", "true")
 		_ = generateCmd.Flags().Set("step", "0")
 		generateCmd.Flags().Lookup("step").Changed = false
+		img := generateCmd.Flags().Lookup("image")
+		_ = img.Value.(pflag.SliceValue).Replace(nil)
+		img.Changed = false
 		for _, f := range []string{"api-key", "model", "env-file"} {
 			fl := rootCmd.PersistentFlags().Lookup(f)
 			_ = fl.Value.Set(fl.DefValue)
@@ -78,7 +83,7 @@ func TestSessionTurns(t *testing.T) {
 	for _, args := range [][]string{
 		{"--session", "fox", "a fox"},
 		{"--session", "fox", "add a scarf"},
-		{"--session", "fox", "--step", "1", "add a hat instead"},
+		{"--session", "fox", "--step", "1", "-i", "../testdata/girl.jpg", "give her this hat"},
 	} {
 		if err := generate(args...); err != nil {
 			t.Fatalf("%v: %v (stderr: %s)", args, err, stderr.String())
@@ -94,6 +99,9 @@ func TestSessionTurns(t *testing.T) {
 	if !strings.Contains(reqs[2], `"previous_interaction_id":"v1_first"`) {
 		t.Errorf("--step 1 didn't continue the first turn: %s", reqs[2])
 	}
+	if !strings.Contains(reqs[2], `"mime_type":"image/jpeg","type":"image"`) {
+		t.Errorf("reference image not sent: %.300s", reqs[2])
+	}
 	saved, err := loadSession(filepath.Join(state, "gemini-image", "sessions", "fox.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -104,10 +112,12 @@ func TestSessionTurns(t *testing.T) {
 	}
 	stepFlags := maps.Clone(flags)
 	stepFlags["step"] = "1"
+	stepFlags["image"] = "[../testdata/girl.jpg]"
+	girl, _ := filepath.Abs("../testdata/girl.jpg")
 	want := &session{Interactions: []interaction{
 		{ID: "v1_first", Prompt: "a fox", File: out, Parameters: genParams{Model: "m"}, Flags: flags},
 		{ID: "v1_second", Prompt: "add a scarf", File: out, Parameters: genParams{Model: "m"}, Flags: flags},
-		{ID: "v1_third", Prompt: "add a hat instead", File: out, Parameters: genParams{Model: "m"}, Flags: stepFlags},
+		{ID: "v1_third", Prompt: "give her this hat", Images: []string{girl}, File: out, Parameters: genParams{Model: "m"}, Flags: stepFlags},
 	}}
 	if !reflect.DeepEqual(saved, want) {
 		t.Errorf("saved session:\n%+v\nwant:\n%+v", saved, want)
