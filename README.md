@@ -143,3 +143,7 @@ internal/
 ```sh
 go test ./...
 ```
+
+To see exactly what the API sends, use the hidden `--debug-events FILE` flag. It writes the request and
+every raw stream event to the file as JSON lines. Image data is included, so the file can get large.
+The file also contains search results, so treat it like the generated output.

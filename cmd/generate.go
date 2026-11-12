@@ -43,6 +43,8 @@ func init() {
 	_ = viper.BindPFlag("thoughts", f.Lookup("thoughts"))
 	f.String("search", "", "ground the image in Google Search: web, image or web,image (env GEMINI_SEARCH)")
 	_ = viper.BindPFlag("search", f.Lookup("search"))
+	f.String("debug-events", "", "write the request and every raw stream event to `file` as JSON lines")
+	_ = f.MarkHidden("debug-events")
 	_ = generateCmd.RegisterFlagCompletionFunc("search", cobra.FixedCompletions([]string{"web", "image", "web,image"}, cobra.ShellCompDirectiveNoFileComp))
 	_ = viper.BindPFlag("aspect-ratio", f.Lookup("aspect-ratio"))
 	_ = viper.BindPFlag("size", f.Lookup("size"))
@@ -117,6 +119,14 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 		Tools:          tools,
 	}
 	p := newProgress(cmd)
+	if path, _ := cmd.Flags().GetString("debug-events"); path != "" {
+		f, err := os.Create(path)
+		if err != nil {
+			return fmt.Errorf("creating debug events file: %w", err)
+		}
+		defer f.Close()
+		p.events = f
+	}
 	if p.thoughts {
 		req.GenerationConfig = &interactions.GenerationConfig{ThinkingSummaries: interactions.ThinkingSummariesAuto.ToPointer()}
 	}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"image"
@@ -28,6 +29,7 @@ type progress struct {
 	thought      strings.Builder // thought text not yet printed
 	shownPreview []byte          // last interim image drawn, to avoid repeats
 	printed      map[string]bool // suggestions and citations already printed
+	events       io.Writer       // --debug-events: request and raw events as JSON lines
 }
 
 func (p *progress) setStatus(msg string) { p.status.Set(msg) }
@@ -71,6 +73,11 @@ func (p *progress) thoughtImage(data string) {
 // arrive, and returns the final image and its MIME type.
 func streamImage(ctx context.Context, client *genai.Client, req interactions.CreateModelInteraction, p *progress) ([]byte, string, error) {
 	req.Stream = genai.Ptr(true)
+	if p.events != nil {
+		if b, err := json.Marshal(req); err == nil {
+			fmt.Fprintf(p.events, "{\"request\":%s}\n", b)
+		}
+	}
 	res, err := client.Interactions.Create(ctx, operations.CreateInteractionRequest{
 		Body: operations.NewCreateInteractionRequestBody(req),
 	})
@@ -85,6 +92,9 @@ func streamImage(ctx context.Context, client *genai.Client, req interactions.Cre
 
 	c := newCollector(p)
 	for stream.Next() {
+		if p.events != nil {
+			fmt.Fprintf(p.events, "%s\n", stream.RawValue())
+		}
 		if err := c.handle(stream.Value()); err != nil {
 			return nil, "", err
 		}
@@ -141,10 +151,11 @@ func (c *collector) handle(ev *interactions.InteractionSSEStreamEvent) error {
 		case interactions.StepTypeModelOutput:
 			c.p.setStatus("rendering")
 		case interactions.StepTypeGoogleSearchCall:
-			c.p.setStatus("searching")
+			var queries []string
 			if call := s.Step.GoogleSearchCallStep; call != nil {
-				c.p.searching(call.Arguments.Queries)
+				queries = call.Arguments.Queries
 			}
+			c.searching(queries)
 		case interactions.StepTypeGoogleSearchResult:
 			if res := s.Step.GoogleSearchResultStep; res != nil {
 				c.p.searchResult(res.Result)
@@ -156,8 +167,15 @@ func (c *collector) handle(ev *interactions.InteractionSSEStreamEvent) error {
 	if d := ev.GetDataStepDelta(); d != nil {
 		c.delta(d)
 	}
-	if s := ev.GetDataStepStop(); s != nil && c.stepTypes[s.Index] == interactions.StepTypeThought {
-		c.p.flushThought()
+	if s := ev.GetDataStepStop(); s != nil {
+		switch c.stepTypes[s.Index] {
+		case interactions.StepTypeThought:
+			c.p.flushThought()
+		case interactions.StepTypeModelOutput:
+			if c.lastImage >= 0 {
+				c.p.setStatus("finishing")
+			}
+		}
 	}
 	if done := ev.GetDataInteractionCompleted(); done != nil {
 		c.final = &done.Interaction
@@ -165,6 +183,21 @@ func (c *collector) handle(ev *interactions.InteractionSSEStreamEvent) error {
 		c.groundingFromSteps(done.Interaction.Steps)
 	}
 	return nil
+}
+
+// searching shows a search in the status line, unless the image has already
+// arrived: the API reports the search steps after the image even though the
+// search ran while the model was thinking, and "searching" after "rendering"
+// would suggest the results came too late to be used.
+func (c *collector) searching(queries []string) {
+	if c.lastImage >= 0 {
+		return
+	}
+	if len(queries) == 0 {
+		c.p.setStatus("searching")
+		return
+	}
+	c.p.searching(queries)
 }
 
 // groundingFromSteps shows search suggestions and sources included in the
@@ -194,7 +227,7 @@ func (c *collector) delta(d *interactions.StepDelta) {
 		c.text.WriteString(t.Text)
 	}
 	if call := d.GetDeltaGoogleSearchCall(); call != nil {
-		c.p.searching(call.Arguments.Queries)
+		c.searching(call.Arguments.Queries)
 	}
 	if res := d.GetDeltaGoogleSearchResult(); res != nil {
 		c.p.searchResult(res.Result)

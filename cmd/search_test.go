@@ -2,13 +2,70 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"image/color"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
+	"time"
+
+	"google.golang.org/genai"
+	"google.golang.org/genai/interactions/models/interactions"
 )
+
+// TestSearchStatusOrder: the real API reports the search steps after the
+// image (captured with --debug-events), although the search ran while the
+// model was thinking. Showing "searching" after "rendering" made it look as
+// if the results were ignored, so late search steps must not change the status.
+func TestSearchStatusOrder(t *testing.T) {
+	b64 := base64.StdEncoding.EncodeToString(testPNG(t, color.Black))
+	chips := `<a class=\"chip\" href=\"https://www.google.com/search?q=sf+weather\">sf weather</a>`
+	thought := []string{
+		`{"index":0,"step":{"type":"thought"},"event_type":"step.start"}`,
+		`{"index":0,"event_type":"step.stop"}`,
+	}
+	img := []string{
+		`{"index":1,"step":{"type":"model_output"},"event_type":"step.start"}`,
+		`{"index":1,"delta":{"type":"image","mime_type":"image/png","data":"` + b64 + `"},"event_type":"step.delta"}`,
+		`{"index":1,"event_type":"step.stop"}`,
+	}
+	search := []string{
+		`{"index":2,"step":{"id":"s1","type":"google_search_call","search_type":"web_search"},"event_type":"step.start"}`,
+		`{"index":2,"delta":{"type":"google_search_call","arguments":{"queries":["sf weather"]}},"event_type":"step.delta"}`,
+		`{"index":2,"event_type":"step.stop"}`,
+		`{"index":3,"step":{"call_id":"s1","type":"google_search_result"},"event_type":"step.start"}`,
+		`{"index":3,"delta":{"type":"google_search_result","result":[{"search_suggestions":"` + chips + `"}]},"event_type":"step.delta"}`,
+		`{"index":3,"event_type":"step.stop"}`,
+	}
+	for name, c := range map[string]struct {
+		events        []string
+		wantSearching bool
+	}{
+		"search reported after image (real API order)": {slices.Concat(thought, img, search), false},
+		"search reported before image":                 {slices.Concat(thought, search, img), true},
+	} {
+		client, _ := fakeClient(t, sse(c.events...))
+		var status, errOut bytes.Buffer
+		p := &progress{errOut: &errOut, status: &statusLine{w: &status, cols: func() int { return 200 }, start: time.Now()}}
+		req := interactions.CreateModelInteraction{Model: "m", Input: genai.Ptr(interactions.NewInteractionsInput("p"))}
+		if _, _, err := streamImage(context.Background(), client, req, p); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		draws := status.String()
+		if got := strings.Contains(draws, "searching: sf weather"); got != c.wantSearching {
+			t.Errorf("%s: status showed searching = %v, want %v", name, got, c.wantSearching)
+		}
+		if last := draws[strings.LastIndex(draws, "\r"):]; !strings.Contains(last, "finishing") {
+			t.Errorf("%s: final status = %q, want finishing", name, last)
+		}
+		if !strings.Contains(errOut.String(), "Google Search suggestions:") {
+			t.Errorf("%s: suggestions not printed", name)
+		}
+	}
+}
 
 func TestSearchTools(t *testing.T) {
 	if tools, err := searchTools(""); tools != nil || err != nil {
