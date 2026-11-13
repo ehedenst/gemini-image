@@ -4,7 +4,13 @@ Command-line tool for generating images with the Google Gemini API ("Nano Banana
 
 ## Install
 
-Needs Go 1.26 or later.
+Download the archive for your system from the
+[releases](https://github.com/ehedenst/gemini-image/releases) and put `gemini-image` (`gemini-image.exe`
+on Windows) somewhere on your `PATH`; `checksums.txt` has the SHA-256 of each archive. The macOS
+binaries aren't signed, so if macOS blocks one you downloaded with a browser, run
+`xattr -d com.apple.quarantine gemini-image`.
+
+To build it yourself, you need Go 1.26 or later:
 
 ```sh
 go build                # builds ./gemini-image
@@ -324,6 +330,7 @@ Shell completion (including values for `--aspect-ratio`, `--size` and `--search`
 
 ```text
 main.go          entry point, only calls cmd.Execute()
+.github/workflows/release.yml  builds and publishes a release for a vX.Y.Z tag
 cmd/
   root.go        root command, flags, Viper/env setup, exit codes
   generate.go    generate subcommand
@@ -344,6 +351,16 @@ testdata/        portraits for the reference-image tests
 ```sh
 go test -count=1 -shuffle=on ./...
 ```
+
+To release, tag a commit on `main` and push the tag:
+
+```sh
+git tag v1.0.0 && git push origin v1.0.0
+```
+
+The release workflow checks that the tag is on `main` and runs the tests. It then builds macOS, Linux and
+Windows binaries (amd64 and arm64) with the tag as their `--version`, and publishes them as a GitHub
+release with checksums and notes generated from the commits.
 
 To see exactly what the API sends, use the hidden `--debug-events FILE` flag. It writes the request and
 every raw stream event to the file as JSON lines. Image data is included, so the file can get large.

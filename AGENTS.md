@@ -23,6 +23,9 @@ Rebuild `./gemini-image` after every change: it's what gets run by hand. Keep th
 - `cmd/`: one Cobra command or feature per file, each with a `_test.go`.
 - `internal/kitty/`: kitty graphics protocol output (`Preview`, `Thumbnail`). `kitty_other.go` is
   the non-Unix stub; keep its exported functions in sync.
+- `.github/workflows/release.yml`: on a pushed `vX.Y.Z` tag on `main`, tests, cross-builds and
+  publishes a GitHub release. It sets the version with `-X …/cmd.version`, so keep that variable.
+  Actions are pinned to commit SHAs with the version in a comment; update both together.
 - `testdata/`: 512×512 portraits for reference-image tests; reach them from `cmd/` as
   `../testdata/<name>.jpg`. `testdata/README.md` has the prompts used to make them.
 
@@ -93,6 +96,6 @@ Confirmed against the real API; keep the code and tests in line with it.
 ## Working agreements
 
 - Ask before running anything that spends real API generations, and before using the camera.
-- Commit only when asked; never push.
+- Commit only when asked; never push, and never create or push tags (a pushed tag is a release).
 - Don't commit `.env`, generated `image-*` files, `*.jsonl` debug captures or the `gemini-image`
   binary (all gitignored).
