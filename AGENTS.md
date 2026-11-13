@@ -27,8 +27,9 @@ Rebuild `./gemini-image` after every change: it's what gets run by hand.
 ## CLI conventions
 
 - Cobra and Viper. Config precedence: flag, then env (`GEMINI_*`), then `.env`, then defaults.
-  `GEMINI_API_KEY` and `GEMINI_MODEL` values starting with `!` are run with `sh -c` (`setting`
-  in `cmd/env.go`); other settings are read from Viper as they are.
+  A `GEMINI_API_KEY` value starting with `!` is run with `sh -c` (`setting` in `cmd/env.go`),
+  so the key can stay in a password manager; only the key gets this, other settings are read
+  from Viper as they are.
 - stdout is for output only (e.g. the saved image path); progress, warnings, notes and errors go
   to stderr.
 - Exit codes: 0 ok, 1 runtime error, 2 usage error (wrap in `usageError`, including from

@@ -191,10 +191,7 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	if apiKey == "" {
 		return usageError{errors.New("no API key: set --api-key or GEMINI_API_KEY")}
 	}
-	model, err := setting(cmd, "model")
-	if err != nil {
-		return fmt.Errorf("resolving model: %w", err)
-	}
+	model := viper.GetString("model")
 
 	// Built after all other checks, so a bad flag doesn't turn the camera on.
 	images, _ := cmd.Flags().GetStringArray("image")

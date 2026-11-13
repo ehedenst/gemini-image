@@ -29,7 +29,8 @@ func loadEnvFile(path string, required bool) error {
 
 // setting returns the value for key from its flag or environment variable.
 // Values that did not come from a flag are passed through resolveValue, so
-// "!command" is only run when the flag doesn't override it.
+// "!command" is only run when the flag doesn't override it. Only the API key
+// is secret enough to need this; other settings are read from Viper as is.
 func setting(cmd *cobra.Command, key string) (string, error) {
 	v := viper.GetString(key)
 	if cmd.Flags().Changed(key) {

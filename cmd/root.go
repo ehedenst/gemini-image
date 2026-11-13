@@ -42,8 +42,8 @@ GEMINI_MODEL, GEMINI_ASPECT_RATIO, GEMINI_SIZE, GEMINI_PREVIEW, GEMINI_THOUGHTS,
 GEMINI_SEARCH). Environment variables can also be set in a .env file; variables
 already set in the environment take precedence over the file.
 
-If GEMINI_API_KEY or GEMINI_MODEL starts with "!", the rest is run as a shell
-command and replaced by the command's output, e.g.:
+If GEMINI_API_KEY starts with "!", the rest is run as a shell command and
+replaced by the command's output, so the key can stay in a password manager:
 
   GEMINI_API_KEY="!op read 'op://Vault/Gemini API Key/credential'"`,
 	Version:       buildVersion(),

@@ -41,11 +41,11 @@ On startup the CLI loads `.env` from the current directory if it exists. To use 
 file, pass `--env-file path`; in that case a missing file is an error. Variables that are already
 set in your shell take precedence over values in the file. See [.env.example](.env.example).
 
-### Running a command for a value
+### Reading the API key from a command
 
-If the value of `GEMINI_API_KEY` or `GEMINI_MODEL` starts with `!`, the rest of the value is run as a shell
-command (`sh -c`). The command's output, with surrounding whitespace trimmed, becomes the value. This lets
-you keep the key in a password manager:
+If the value of `GEMINI_API_KEY` starts with `!`, the rest of the value is run as a shell command
+(`sh -c`). The command's output, with surrounding whitespace trimmed, becomes the key. This lets you keep
+the key in a password manager. Other settings aren't secret and are used as they are:
 
 ```sh
 GEMINI_API_KEY="!op read 'op://Vault/Gemini API Key/credential'"
