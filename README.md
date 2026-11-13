@@ -80,7 +80,9 @@ gemini-image generate -i man.jpg -i woman.jpg "The two of them having coffee in 
 | `--session`      | Continue (or start) a named multi-turn editing session.                             |
 | `--step`         | With `--session`: continue from this step (1 = first) instead of the last one.      |
 
-Not every model supports every aspect ratio or size. If you leave a flag out, the model's default applies.
+Not every model supports every aspect ratio or size. Per the docs, `1:4`, `4:1`, `1:8` and `8:1` are for
+`gemini-nano-banana-2.1` and `gemini-3.1-flash-image`, and `512` is for `gemini-3.1-flash-image` (though
+`gemini-nano-banana-2.1` accepts it too). If you leave a flag out, the model's default applies.
 
 The API decides the image type. If the extension given with `-o` doesn't match it, the image is still
 saved under that name, with a warning. An `-o` in a directory that doesn't exist is an error before
@@ -96,7 +98,7 @@ order given, after the prompt.
 PNG, JPEG, WebP, HEIC, HEIF, GIF, BMP and TIFF are accepted. The type is detected from the file
 content, or from the extension for HEIC, HEIF and TIFF. The 14-image limit is the most any model
 accepts. Per the docs, `gemini-nano-banana-2.1` and `gemini-3.1-flash-image` keep up to 4
-characters and 10 objects faithful, `gemini-3-pro-image` 5 characters and 6 objects, and
+characters and 10 objects faithful, `gemini-3-pro-image` 5 characters, 6 objects and 3 style references, and
 `gemini-2.5-flash-image` works best with up to 3 images. The API reports an error if a model doesn't
 accept what you send.
 
@@ -313,4 +315,7 @@ go test -count=1 -shuffle=on ./...
 
 To see exactly what the API sends, use the hidden `--debug-events FILE` flag. It writes the request and
 every raw stream event to the file as JSON lines. Image data is included, so the file can get large.
-The file also contains search results, so treat it like the generated output.
+The file also contains search results, so treat it like the generated output. The last line is
+`{"end": {…}}` with the seconds the stream took (`elapsed_s`), when its last event arrived
+(`last_event_s`), the number of events and any error, which shows whether a failed run went quiet first
+or broke off suddenly.

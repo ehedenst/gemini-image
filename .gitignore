@@ -1,3 +1,4 @@
 .env
 /gemini-image
 image-*
+*.jsonl

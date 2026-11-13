@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/ehedenst/gemini-image/internal/kitty"
 	"google.golang.org/genai"
@@ -85,12 +86,27 @@ func (p *progress) thoughtImage(data string) {
 
 // streamImage runs req as a streamed interaction, reporting progress as events
 // arrive, and returns the final image and its MIME type.
-func streamImage(ctx context.Context, client *genai.Client, req interactions.CreateModelInteraction, p *progress) ([]byte, string, error) {
+func streamImage(ctx context.Context, client *genai.Client, req interactions.CreateModelInteraction, p *progress) (img []byte, mimeType string, err error) {
 	req.Stream = genai.Ptr(true)
+	start, events, lastEvent := time.Now(), 0, time.Duration(0)
 	if p.events != nil {
 		if b, err := json.Marshal(req); err == nil {
 			fmt.Fprintf(p.events, "{\"request\":%s}\n", b)
 		}
+		// A last line with the timing and the outcome, to tell a long silence
+		// before a dropped connection from a sudden failure.
+		defer func() {
+			end := map[string]any{
+				"elapsed_s":    time.Since(start).Round(time.Millisecond).Seconds(),
+				"last_event_s": lastEvent.Round(time.Millisecond).Seconds(),
+				"events":       events,
+			}
+			if err != nil {
+				end["error"] = err.Error()
+			}
+			b, _ := json.Marshal(map[string]any{"end": end})
+			fmt.Fprintf(p.events, "%s\n", b)
+		}()
 	}
 	res, err := client.Interactions.Create(ctx, operations.CreateInteractionRequest{
 		Body: operations.NewCreateInteractionRequestBody(req),
@@ -108,6 +124,7 @@ func streamImage(ctx context.Context, client *genai.Client, req interactions.Cre
 
 	c := newCollector(p)
 	for stream.Next() {
+		events, lastEvent = events+1, time.Since(start)
 		if p.events != nil {
 			fmt.Fprintf(p.events, "%s\n", stream.RawValue())
 		}
@@ -123,8 +140,10 @@ func streamImage(ctx context.Context, client *genai.Client, req interactions.Cre
 		switch {
 		case !lost:
 			return nil, "", err
-		case c.final != nil:
+		case c.final != nil && c.final.Status == interactions.InteractionSseEventInteractionStatusCompleted:
 			// Lost after interaction.completed: only the closing [DONE] is missing.
+			// (The SDK's automatic continuation also passes on a completed event
+			// with status requires_continuation at the end of each part.)
 		case c.imageDone:
 			p.cutShort = err
 		default:
@@ -135,28 +154,51 @@ func streamImage(ctx context.Context, client *genai.Client, req interactions.Cre
 			return nil, "", fmt.Errorf("connection to the API lost before the image arrived, try again: %w", err)
 		}
 	}
+	p.noteMissingSuggestions(c.searches)
 	return c.result()
 }
 
-// failure returns why the interaction id failed, or "" if it didn't (yet).
+// failureRetryDelay is the wait between failure's lookups; tests shorten it.
+var failureRetryDelay = time.Second
+
+// failure returns why the interaction id failed, or "" if it didn't.
 // The API sometimes fails an interaction by just closing the stream, without
-// an error event; the error is only on the interaction itself.
+// an error event; the error is only on the interaction itself. Right after
+// the drop the API may not have recorded the outcome yet, so while the
+// interaction still looks like it's running, it's looked up again, three
+// times in all. (The SDK already retries lookups that fail.)
 func failure(ctx context.Context, client *genai.Client, id string) string {
 	if id == "" {
 		return ""
 	}
-	res, err := client.Interactions.Get(ctx, operations.GetInteractionByIDRequest{ID: id})
-	if err != nil || res.Interaction == nil || res.Interaction.Status != interactions.InteractionStatusFailed {
-		return ""
+	for attempt := 1; ; attempt++ {
+		res, err := client.Interactions.Get(ctx, operations.GetInteractionByIDRequest{ID: id})
+		if err != nil || res.Interaction == nil {
+			return ""
+		}
+		switch res.Interaction.Status {
+		case interactions.InteractionStatusFailed:
+			var msgs []string
+			for _, e := range res.Interaction.Errors {
+				msgs = append(msgs, errorText(&e))
+			}
+			if len(msgs) == 0 {
+				return "unknown error"
+			}
+			return strings.Join(msgs, "; ")
+		case interactions.InteractionStatusInProgress, interactions.InteractionStatusQueued:
+			if attempt == 3 {
+				return ""
+			}
+		default:
+			return ""
+		}
+		select {
+		case <-ctx.Done():
+			return ""
+		case <-time.After(failureRetryDelay):
+		}
 	}
-	var msgs []string
-	for _, e := range res.Interaction.Errors {
-		msgs = append(msgs, errorText(&e))
-	}
-	if len(msgs) == 0 {
-		return "unknown error"
-	}
-	return strings.Join(msgs, "; ")
 }
 
 // errorText renders an API error as "message (code)".
@@ -197,6 +239,7 @@ type collector struct {
 	text      strings.Builder                    // model text output, e.g. a refusal
 	status    string
 	final     *interactions.InteractionSseEventInteraction
+	searches  int // Google searches the completed events report
 }
 
 func newCollector(p *progress) *collector {
@@ -268,7 +311,7 @@ func (c *collector) handle(ev *interactions.InteractionSSEStreamEvent) error {
 		}
 		c.status = string(done.Interaction.Status)
 		c.groundingFromSteps(done.Interaction.Steps)
-		c.p.noteMissingSuggestions(searchCount(done.Interaction.Usage))
+		c.searches += searchCount(done.Interaction.Usage) // each part reports its own
 	}
 	return nil
 }

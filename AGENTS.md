@@ -63,7 +63,7 @@ Rebuild `./gemini-image` after every change: it's what gets run by hand.
 - Camera code is tested through `cameraArgs`, `parseAVFoundation` and `listV4L2` with fixed
   inputs; don't open a real camera in tests.
 - The hidden `--debug-events FILE` flag dumps the request and raw stream events as JSON lines,
-  useful for writing fakes from real responses.
+  useful for writing fakes from real responses, then an `end` line with timing and the error.
 
 ## Working agreements
 
