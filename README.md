@@ -21,14 +21,6 @@ powershell -ExecutionPolicy Bypass -File skills\gemini-image\scripts\install.ps1
 `--version vX.Y.Z` (`-Version` on Windows) installs a specific release and `--dir` (`-Dir`) another
 directory; running it again updates to the latest release.
 
-### AI agents
-
-[`skills/gemini-image`](skills/gemini-image) is an [Agent Skill](https://agentskills.io): instructions
-that teach AI agents such as Claude Code to generate and edit images with this CLI, plus the install
-scripts above, which the agent runs if `gemini-image` isn't installed. Copy the directory into your
-agent's skills directory, for example `~/.claude/skills/` for Claude Code. The agent needs
-`GEMINI_API_KEY`, in its environment or in a `.env` file in its working directory.
-
 To build it yourself, you need Go 1.26 or later:
 
 ```sh
@@ -44,6 +36,20 @@ with `go build`. To set your own, use:
 ```sh
 go build -ldflags "-X github.com/ehedenst/gemini-image/cmd.version=$(git describe --tags --always)"
 ```
+
+### AI agents
+
+[`skills/gemini-image`](skills/gemini-image) is an [Agent Skill](https://agentskills.io): instructions
+that teach AI agents such as Claude Code to generate and edit images with this CLI, plus the install
+scripts above, which the agent runs if `gemini-image` isn't installed. Add it to your agent with:
+
+```sh
+npx skills add ehedenst/gemini-image --skill gemini-image
+```
+
+Or copy the directory into your agent's skills directory, for example `~/.claude/skills/` for Claude
+Code. The agent needs `GEMINI_API_KEY`, in its environment or in a `.env` file in its working
+directory.
 
 ## Configuration
 
