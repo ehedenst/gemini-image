@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"slices"
 	"strings"
 	"unicode"
 
@@ -11,28 +10,23 @@ import (
 )
 
 // searchTypes maps --search values to Google Search grounding types.
-var searchTypes = map[string]interactions.GoogleSearchSearchType{
-	"web":   interactions.GoogleSearchSearchTypeWebSearch,
-	"image": interactions.GoogleSearchSearchTypeImageSearch,
+var searchTypes = map[string][]interactions.GoogleSearchSearchType{
+	"web":   {interactions.GoogleSearchSearchTypeWebSearch},
+	"image": {interactions.GoogleSearchSearchTypeImageSearch},
+	"all":   {interactions.GoogleSearchSearchTypeWebSearch, interactions.GoogleSearchSearchTypeImageSearch},
 }
 
-// searchTools builds the Google Search tool from a comma-separated list of
-// search types ("web", "image"). An empty spec disables grounding.
+// searchTools builds the Google Search tool for a --search value ("web",
+// "image" or "all"). An empty value disables grounding.
 func searchTools(spec string) ([]interactions.Tool, error) {
 	if strings.TrimSpace(spec) == "" {
 		return nil, nil
 	}
-	var g interactions.GoogleSearch
-	for s := range strings.SplitSeq(spec, ",") {
-		t, ok := searchTypes[strings.ToLower(strings.TrimSpace(s))]
-		if !ok {
-			return nil, fmt.Errorf("invalid search type %q, valid: web, image", s)
-		}
-		if !slices.Contains(g.SearchTypes, t) {
-			g.SearchTypes = append(g.SearchTypes, t)
-		}
+	types, ok := searchTypes[strings.ToLower(strings.TrimSpace(spec))]
+	if !ok {
+		return nil, fmt.Errorf("invalid search type %q, valid: web, image, all", spec)
 	}
-	return []interactions.Tool{interactions.NewTool(g)}, nil
+	return []interactions.Tool{interactions.NewTool(interactions.GoogleSearch{SearchTypes: types})}, nil
 }
 
 type link struct{ text, url string }

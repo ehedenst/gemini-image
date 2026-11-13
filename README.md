@@ -74,7 +74,7 @@ gemini-image generate -i man.jpg -i woman.jpg "The two of them having coffee in 
 | `--size`         | `512`, `1K`, `2K`, `4K`                                                             |
 | `--preview`      | Show images in the terminal (default `true`; disable with `--preview=false`). Applies to all commands. |
 | `--thoughts`     | Print the model's thought summaries and preview its interim images.                |
-| `--search`       | Ground the image in Google Search: `web`, `image` or `web,image`.                   |
+| `--search`       | Ground the image in Google Search: `web`, `image` or `all`.                        |
 | `-i, --image`    | Reference image to include with the prompt. Repeat for more, at most 14.           |
 | `--camera`       | Take a photo with the camera and add it as a reference image.                       |
 | `--session`      | Continue (or start) a named multi-turn editing session.                             |
@@ -274,7 +274,7 @@ weather, scores and other real-world facts:
 - `web` searches the web for facts.
 - `image` uses Google Image Search results as visual references. Only `gemini-nano-banana-2.1` and
   `gemini-3.1-flash-image` support it.
-- `web,image` enables both.
+- `all` enables both.
 
 `gemini-3.1-flash-lite-image` doesn't support grounding at all.
 

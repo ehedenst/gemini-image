@@ -77,16 +77,22 @@ func TestSearchTools(t *testing.T) {
 	if tools, err := searchTools(""); tools != nil || err != nil {
 		t.Errorf("empty: got %v, %v", tools, err)
 	}
-	tools, err := searchTools("Web, image,web")
-	if err != nil {
-		t.Fatal(err)
+	for spec, want := range map[string]string{
+		" All ": `["web_search","image_search"]`,
+		"web":   `["web_search"]`,
+		"Image": `["image_search"]`,
+	} {
+		tools, err := searchTools(spec)
+		b, _ := json.Marshal(tools)
+		if want := `[{"search_types":` + want + `,"type":"google_search"}]`; err != nil || string(b) != want {
+			t.Errorf("%q: got %s, %v; want %s", spec, b, err, want)
+		}
 	}
-	b, _ := json.Marshal(tools)
-	if want := `[{"search_types":["web_search","image_search"],"type":"google_search"}]`; string(b) != want {
-		t.Errorf("got %s, want %s", b, want)
-	}
-	if _, err := searchTools("web,maps"); err == nil {
-		t.Error("expected error for unknown search type")
+	// "all" replaced the comma-separated list.
+	for _, bad := range []string{"maps", "web,image"} {
+		if _, err := searchTools(bad); err == nil {
+			t.Errorf("%q: no error", bad)
+		}
 	}
 }
 
