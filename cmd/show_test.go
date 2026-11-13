@@ -55,7 +55,7 @@ func TestSessionCommand(t *testing.T) {
 	}
 
 	// --delete removes the history but keeps the images.
-	t.Cleanup(func() { _ = sessionCmd.Flags().Set("delete", "false") })
+	resetCLI(t)
 	errOut.Reset()
 	rootCmd.SetArgs([]string{"session", "--delete", "fox"})
 	if err := rootCmd.Execute(); err != nil || errOut.String() != "deleted session \"fox\"\n" {
@@ -69,6 +69,46 @@ func TestSessionCommand(t *testing.T) {
 	}
 	if got := exitCode(rootCmd.Execute()); got != 1 {
 		t.Errorf("deleting again: exit %d, want 1", got)
+	}
+}
+
+// TestSessionsPreviewOff: the global --preview=false turns thumbnails off, so
+// the image isn't even read and a missing one gets no warning.
+func TestSessionsPreviewOff(t *testing.T) {
+	resetCLI(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("GEMINI_PREVIEW", "")
+	path, _ := sessionFile("fox")
+	if err := saveSession(path, &session{Interactions: []interaction{{ID: "1", File: filepath.Join(t.TempDir(), "gone.png")}}}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := os.Create(filepath.Join(t.TempDir(), "stdout")) // a file, like a real stdout
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer out.Close()
+	var errOut bytes.Buffer
+	rootCmd.SetOut(out)
+	rootCmd.SetErr(&errOut)
+	defer rootCmd.SetOut(io.Discard)
+	defer rootCmd.SetErr(io.Discard)
+
+	for _, c := range []struct {
+		args []string
+		warn bool
+	}{
+		{[]string{"sessions"}, true},
+		{[]string{"sessions", "--preview=false"}, false},
+		{[]string{"--preview=false", "sessions"}, false},
+	} {
+		errOut.Reset()
+		rootCmd.SetArgs(c.args)
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("%v: %v", c.args, err)
+		}
+		if got := strings.Contains(errOut.String(), "gone.png"); got != c.warn {
+			t.Errorf("%v: warning = %v, want %v (stderr %q)", c.args, got, c.warn, errOut.String())
+		}
 	}
 }
 

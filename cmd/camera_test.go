@@ -46,9 +46,16 @@ func TestParseAVFoundation(t *testing.T) {
 
 func TestListV4L2(t *testing.T) {
 	sysfs := t.TempDir()
-	for dev, name := range map[string]string{"video0": "Integrated Camera\n", "video2": "USB Webcam\n", "video10": "Loopback\n", "video1": ""} {
+	for dev, name := range map[string]string{"video0": "Integrated Camera\n", "video2": "USB Webcam\n", "video3": "USB Webcam\n", "video10": "Loopback\n", "video1": ""} {
 		dir := filepath.Join(sysfs, dev)
 		if err := os.Mkdir(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		index := "0\n"
+		if dev == "video3" { // the webcam's metadata node is left out
+			index = "1\n"
+		}
+		if err := os.WriteFile(filepath.Join(dir, "index"), []byte(index), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		if name != "" { // video1 has no name file and is skipped

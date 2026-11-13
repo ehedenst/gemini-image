@@ -80,7 +80,7 @@ func sessionsDir() (string, error) {
 // sessionsDir.
 func sessionFile(name string) (string, error) {
 	if !sessionName.MatchString(name) {
-		return "", fmt.Errorf("invalid session name %q: use letters, digits, '.', '_' and '-'", name)
+		return "", fmt.Errorf("invalid session name %q: use letters, digits, '.', '_' and '-', starting with a letter or digit", name)
 	}
 	dir, err := sessionsDir()
 	if err != nil {
@@ -135,8 +135,9 @@ func saveSession(path string, s *session) error {
 // so the key never ends up in the session file.
 func givenFlags(flags *pflag.FlagSet) map[string]string {
 	m := map[string]string{}
-	flags.Visit(func(f *pflag.Flag) {
-		if f.Name != "api-key" {
+	// Not Visit: it also lists flags whose Changed was reset, as tests do.
+	flags.VisitAll(func(f *pflag.Flag) {
+		if f.Changed && f.Name != "api-key" {
 			m[f.Name] = f.Value.String()
 		}
 	})

@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io/fs"
+	"mime"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -43,8 +46,6 @@ func init() {
 	f.StringP("output", "o", "", "output file (default image-<timestamp>.<ext>)")
 	f.String("aspect-ratio", "", "aspect ratio: "+strings.Join(aspectRatios, ", ")+" (env GEMINI_ASPECT_RATIO, default model's choice)")
 	f.String("size", "", "image size: "+strings.Join(imageSizes, ", ")+" (env GEMINI_SIZE, default model's choice)")
-	f.Bool("preview", true, "show the image in the terminal if it supports the kitty graphics protocol (env GEMINI_PREVIEW)")
-	_ = viper.BindPFlag("preview", f.Lookup("preview"))
 	f.Bool("thoughts", false, "print the model's thought summaries and preview its interim images (env GEMINI_THOUGHTS)")
 	_ = viper.BindPFlag("thoughts", f.Lookup("thoughts"))
 	f.String("search", "", "ground the image in Google Search: web, image or web,image (env GEMINI_SEARCH)")
@@ -94,6 +95,58 @@ func imageFormat(aspectRatio, size string) (*interactions.CreateModelInteraction
 	return &rf, nil
 }
 
+// checkOutput catches an --output that can't be written before anything is
+// generated: a directory, or a file in a directory that doesn't exist.
+func checkOutput(path string) error {
+	if path == "" {
+		return nil
+	}
+	if fi, err := os.Stat(path); err == nil && fi.IsDir() {
+		return fmt.Errorf("--output: %s is a directory", path)
+	}
+	dir := filepath.Dir(path)
+	fi, err := os.Stat(dir)
+	if err != nil {
+		return fmt.Errorf("--output: %w", err)
+	}
+	if !fi.IsDir() {
+		return fmt.Errorf("--output: %s is not a directory", dir)
+	}
+	return nil
+}
+
+// saveImage writes data to path and returns the path. With path "" it writes
+// a new image-<timestamp>.<ext> file instead, adding -2, -3, … to the name if
+// it's taken, so runs in the same second don't overwrite each other.
+func saveImage(path, mimeType string, data []byte) (string, error) {
+	if path != "" {
+		return path, os.WriteFile(path, data, 0o644)
+	}
+	name := "image-" + time.Now().Format("20060102-150405")
+	ext := "png"
+	if t, ok := strings.CutPrefix(mimeType, "image/"); ok {
+		ext = t
+	}
+	for i := 1; ; i++ {
+		path = name + "." + ext
+		if i > 1 {
+			path = fmt.Sprintf("%s-%d.%s", name, i, ext)
+		}
+		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if errors.Is(err, fs.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		_, err = f.Write(data)
+		if cerr := f.Close(); err == nil {
+			err = cerr
+		}
+		return path, err
+	}
+}
+
 func runGenerate(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 
@@ -103,6 +156,10 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	}
 	tools, err := searchTools(viper.GetString("search"))
 	if err != nil {
+		return usageError{err}
+	}
+	output, _ := cmd.Flags().GetString("output")
+	if err := checkOutput(output); err != nil {
 		return usageError{err}
 	}
 	var sessionPath, previousID string
@@ -187,28 +244,41 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	if p.thoughts {
 		req.GenerationConfig = &interactions.GenerationConfig{ThinkingSummaries: interactions.ThinkingSummariesAuto.ToPointer()}
 	}
-	data, mime, err := streamImage(ctx, client, req, p)
+	data, mimeType, err := streamImage(ctx, client, req, p)
 	p.status.Stop()
 	if err != nil {
 		p.printGrounding()
 		return fmt.Errorf("generating image: %w", err)
 	}
 
-	path, _ := cmd.Flags().GetString("output")
-	if path == "" {
-		ext := "png"
-		if mime != "" {
-			ext = strings.TrimPrefix(mime, "image/")
+	if p.cutShort != nil {
+		// With the grounding lines, so it shows below the image.
+		msg := fmt.Sprintf("the connection to the API was lost after the image arrived (%v)", p.cutShort)
+		if tools != nil {
+			msg += "; search suggestions and sources may be missing"
 		}
-		path = fmt.Sprintf("image-%s.%s", time.Now().Format("20060102-150405"), ext)
+		p.grounding = append(p.grounding, paint(p.color, sgrYellow, "warning:")+" "+msg)
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if mimeType == "" {
+		mimeType = http.DetectContentType(data)
+	}
+	path, err := saveImage(output, mimeType, data)
+	if err != nil {
+		p.printGrounding()
 		return fmt.Errorf("writing image: %w", err)
+	}
+	if t := mime.TypeByExtension(filepath.Ext(output)); output != "" && t != "" && t != mimeType {
+		fmt.Fprintln(cmd.ErrOrStderr(), paint(p.color, sgrYellow, "warning:"),
+			fmt.Sprintf("%s: the image is %s, not %s as the extension suggests", path, mimeType, t))
 	}
 	if sess != nil {
 		// Warn rather than fail: the image is already saved.
 		err := errors.New("the API sent no interaction ID")
-		if p.interactionID != "" {
+		if p.cutShort != nil {
+			// The API cancels an interaction whose connection drops, so it
+			// may not be possible to continue from it.
+			err = errors.New("the response was cut short")
+		} else if p.interactionID != "" {
 			// Abs only fails if the working directory is gone.
 			abs, _ := filepath.Abs(path)
 			var refs []string
@@ -216,7 +286,7 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 				ref, _ := filepath.Abs(img)
 				refs = append(refs, ref)
 			}
-			sess.Interactions = append(sess.Interactions, interaction{
+			entry := interaction{
 				ID:     p.interactionID,
 				Prompt: args[0],
 				Images: refs,
@@ -224,13 +294,20 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 				Parameters: genParams{
 					Model:       model,
 					AspectRatio: viper.GetString("aspect-ratio"),
-					Size:        viper.GetString("size"),
+					Size:        strings.ToUpper(viper.GetString("size")), // as sent: 2k is sent as 2K
 					Search:      viper.GetString("search"),
 					Thoughts:    p.thoughts,
 				},
 				Flags: givenFlags(cmd.Flags()),
-			})
-			err = saveSession(sessionPath, sess)
+			}
+			// Re-read the history: another run may have added steps while this
+			// one was generating.
+			// shortcut: no file lock, so two runs saving at the same instant can
+			// still lose a step; lock the file if that ever matters.
+			if sess, err = loadSession(sessionPath); err == nil {
+				sess.Interactions = append(sess.Interactions, entry)
+				err = saveSession(sessionPath, sess)
+			}
 		}
 		if err != nil {
 			fmt.Fprintln(cmd.ErrOrStderr(), paint(p.color, sgrYellow, "warning:"), "session not updated:", err)

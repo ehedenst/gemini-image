@@ -179,9 +179,10 @@ func (p *progress) seen(key string) bool {
 }
 
 // link renders l as a clickable OSC 8 hyperlink on terminals, otherwise as
-// "text <url>".
+// "text <url>". A line break would cut an OSC 8 sequence, so both are made
+// one line.
 func (p *progress) link(l link) string {
-	l.text, l.url = sanitize(l.text), sanitize(l.url)
+	l.text, l.url = oneLine(l.text), oneLine(l.url)
 	if p.hyperlinks {
 		return "\x1b]8;;" + l.url + "\x1b\\" + paint(p.color, sgrLink, l.text) + "\x1b]8;;\x1b\\"
 	}

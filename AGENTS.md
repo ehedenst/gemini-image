@@ -27,17 +27,24 @@ Rebuild `./gemini-image` after every change: it's what gets run by hand.
 ## CLI conventions
 
 - Cobra and Viper. Config precedence: flag, then env (`GEMINI_*`), then `.env`, then defaults.
-  Env values starting with `!` are run with `sh -c` (see `cmd/env.go`).
+  `GEMINI_API_KEY` and `GEMINI_MODEL` values starting with `!` are run with `sh -c` (`setting`
+  in `cmd/env.go`); other settings are read from Viper as they are.
 - stdout is for output only (e.g. the saved image path); progress, warnings, notes and errors go
   to stderr.
 - Exit codes: 0 ok, 1 runtime error, 2 usage error (wrap in `usageError`, including from
   `Args` validators), 130 interrupted. `SilenceUsage`/`SilenceErrors` are on; `Execute` prints
   `error: …`.
 - Color only via `cmd/color.go` (`useColor`, `paint`); it respects `NO_COLOR` and non-TTYs.
-- Image previews go through `internal/kitty`, are gated by the `preview` setting, and treat
+- Image previews go through `internal/kitty`, are gated by the `preview` setting (the global
+  `--preview` flag, `GEMINI_PREVIEW`) in every command that draws, and treat
   `errors.ErrUnsupported` as "silently skip". Other preview errors are a yellow `warning:`.
 - Google Search suggestions must always be printed when the API returns them (terms of
   service), after the image preview so they stay on screen.
+- The API cancels an interaction when its stream connection drops, and streams can't be resumed
+  (no SSE event IDs; `Interactions.Get` with `stream=true` is "not supported for this model").
+  So `streamImage` keeps a complete image that arrived before the drop, and nothing else.
+  The API also fails interactions by just closing the stream (no error event); the error is
+  then only on the interaction (`status: failed`, `errors`), which `failure` looks up.
 - Session history lives in `$XDG_STATE_HOME/gemini-image/sessions/NAME.json` and is written
   atomically (temp file + rename). Session names must match `sessionName` in `cmd/session.go`.
 - Keep `README.md` in step with user-visible changes, including the file list under
@@ -46,11 +53,12 @@ Rebuild `./gemini-image` after every change: it's what gets run by hand.
 ## Testing
 
 - Never call the real API in tests. Point the client at a fake server with
-  `GOOGLE_GEMINI_BASE_URL`; helpers `fakeClient`, `sse`, `run` and `testPNG` are in
-  `cmd/stream_test.go`.
-- CLI-level tests drive `rootCmd` directly. Flag values persist between tests, so reset every
-  flag a test sets: the value, `Changed`, slice flags via `pflag.SliceValue.Replace(nil)`, and the
-  root persistent flags (`api-key`, `model`, `env-file`). `cmd/session_test.go` shows the pattern.
+  `GOOGLE_GEMINI_BASE_URL`; helpers `fakeClient`, `sse`, `run`, `testPNG`, `imageEvents` and
+  `generateCLI` are in `cmd/stream_test.go`.
+- CLI-level tests drive `rootCmd` directly. Flag values, `Changed` and command contexts persist
+  between tests, so any test that sets flags or runs `Execute` calls `resetCLI(t)` (in
+  `cmd/stream_test.go`). pflag's `Visit` still lists flags whose `Changed` was reset; check
+  `f.Changed` in `VisitAll` instead. For `generate` runs against a fake API, use `generateCLI`.
 - Use `t.Setenv("XDG_STATE_HOME", t.TempDir())` for anything touching sessions.
 - Camera code is tested through `cameraArgs`, `parseAVFoundation` and `listV4L2` with fixed
   inputs; don't open a real camera in tests.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"strings"
 	"syscall"
 
@@ -18,6 +19,15 @@ import (
 //	go build -ldflags "-X github.com/ehedenst/gemini-image/cmd.version=v1.0.0"
 var version = "dev"
 
+// buildVersion returns version or, when it wasn't set, the module version Go
+// records in the binary (go install, or go build in a git checkout).
+func buildVersion() string {
+	if bi, ok := debug.ReadBuildInfo(); ok && version == "dev" && bi.Main.Version != "" && bi.Main.Version != "(devel)" {
+		return bi.Main.Version
+	}
+	return version
+}
+
 const defaultModel = "gemini-nano-banana-2.1"
 
 var envFile string
@@ -28,15 +38,15 @@ var rootCmd = &cobra.Command{
 	Long: `Generate images with the Google Gemini API.
 
 Settings are read from flags, then environment variables (GEMINI_API_KEY,
-GEMINI_MODEL, GEMINI_ASPECT_RATIO, GEMINI_SIZE). Environment variables can also
-be set in a .env file; variables already set in the environment take
-precedence over the file.
+GEMINI_MODEL, GEMINI_ASPECT_RATIO, GEMINI_SIZE, GEMINI_PREVIEW, GEMINI_THOUGHTS,
+GEMINI_SEARCH). Environment variables can also be set in a .env file; variables
+already set in the environment take precedence over the file.
 
-An environment variable value starting with "!" is run as a shell command and
-replaced by the command's output, e.g.:
+If GEMINI_API_KEY or GEMINI_MODEL starts with "!", the rest is run as a shell
+command and replaced by the command's output, e.g.:
 
-  GEMINI_API_KEY="!op read 'op://Vault/API Key/credential'"`,
-	Version:       version,
+  GEMINI_API_KEY="!op read 'op://Vault/Gemini API Key/credential'"`,
+	Version:       buildVersion(),
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
@@ -52,6 +62,11 @@ func Execute() int {
 	err := rootCmd.ExecuteContext(ctx)
 	if err != nil {
 		fmt.Fprintln(rootCmd.ErrOrStderr(), paint(useColor(rootCmd.ErrOrStderr()), sgrRed, "error:"), err)
+	}
+	if err != nil && ctx.Err() != nil {
+		// Ctrl-C also reaches child processes (ffmpeg, "!command"), which then
+		// fail with their own error instead of context.Canceled.
+		return 130
 	}
 	return exitCode(err)
 }
@@ -82,6 +97,7 @@ func init() {
 	pf.StringVar(&envFile, "env-file", ".env", "file to load environment variables from")
 	pf.String("api-key", "", "Gemini API key (env GEMINI_API_KEY)")
 	pf.String("model", defaultModel, "model to use (env GEMINI_MODEL)")
+	pf.Bool("preview", true, "show images in the terminal if it supports the kitty graphics protocol (env GEMINI_PREVIEW)")
 	_ = viper.BindPFlags(pf)
 	rootCmd.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return usageError{err} })
 

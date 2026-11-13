@@ -4,13 +4,17 @@ Command-line tool for generating images with the Google Gemini API ("Nano Banana
 
 ## Install
 
+Needs Go 1.26 or later.
+
 ```sh
 go build                # builds ./gemini-image
 # or
 go install github.com/ehedenst/gemini-image@latest
 ```
 
-Embed a version string with:
+`gemini-image --version` shows the version Go records in the binary: the release with `go install`,
+or a pseudo-version from the git commit (`v0.0.0-<date>-<commit>`, `+dirty` with uncommitted changes)
+with `go build`. To set your own, use:
 
 ```sh
 go build -ldflags "-X github.com/ehedenst/gemini-image/cmd.version=$(git describe --tags --always)"
@@ -39,9 +43,9 @@ set in your shell take precedence over values in the file. See [.env.example](.e
 
 ### Running a command for a value
 
-If an environment variable's value starts with `!`, the rest of the value is run as a shell command (`sh -c`).
-The command's output, with surrounding whitespace trimmed, becomes the value. This lets you keep the key
-in a password manager:
+If the value of `GEMINI_API_KEY` or `GEMINI_MODEL` starts with `!`, the rest of the value is run as a shell
+command (`sh -c`). The command's output, with surrounding whitespace trimmed, becomes the value. This lets
+you keep the key in a password manager:
 
 ```sh
 GEMINI_API_KEY="!op read 'op://Vault/Gemini API Key/credential'"
@@ -65,10 +69,10 @@ gemini-image generate -i man.jpg -i woman.jpg "The two of them having coffee in 
 
 | Flag             | Description                                                                         |
 | ---------------- | ----------------------------------------------------------------------------------- |
-| `-o, --output`   | Output file. Default: `image-<timestamp>.<ext>`, extension from the returned type. |
+| `-o, --output`   | Output file. Default: `image-<timestamp>.<ext>` (`-2`, `-3`, … if taken), extension from the returned type. |
 | `--aspect-ratio` | `1:1`, `2:3`, `3:2`, `3:4`, `4:3`, `4:5`, `5:4`, `9:16`, `16:9`, `21:9`, `1:4`, `4:1`, `1:8`, `8:1` |
 | `--size`         | `512`, `1K`, `2K`, `4K`                                                             |
-| `--preview`      | Show the image in the terminal (default `true`; disable with `--preview=false`).   |
+| `--preview`      | Show images in the terminal (default `true`; disable with `--preview=false`). Applies to all commands. |
 | `--thoughts`     | Print the model's thought summaries and preview its interim images.                |
 | `--search`       | Ground the image in Google Search: `web`, `image` or `web,image`.                   |
 | `-i, --image`    | Reference image to include with the prompt. Repeat for more, at most 14.           |
@@ -77,6 +81,10 @@ gemini-image generate -i man.jpg -i woman.jpg "The two of them having coffee in 
 | `--step`         | With `--session`: continue from this step (1 = first) instead of the last one.      |
 
 Not every model supports every aspect ratio or size. If you leave a flag out, the model's default applies.
+
+The API decides the image type. If the extension given with `-o` doesn't match it, the image is still
+saved under that name, with a warning. An `-o` in a directory that doesn't exist is an error before
+anything is generated.
 
 ### Reference images
 
@@ -96,13 +104,14 @@ With `--camera`, the CLI takes a photo with your camera and adds it as the last 
 
 ```sh
 gemini-image generate --camera "Turn me into a watercolor painting"
-gemini-image generate --camera="EHEMOB001i Camera" -i hat.jpg "Put this hat on me"
+gemini-image generate --camera="iPhone Camera" -i hat.jpg "Put this hat on me"
 ```
 
 It uses [ffmpeg](https://ffmpeg.org) (`brew install ffmpeg`), on macOS and Linux. Without a value
 it uses the first camera: device 0 on macOS, normally the built-in camera, and `/dev/video0` on
 Linux. To pick another, give its name or index on macOS, or its device file on Linux, with `=`
-(`--camera=1`). `gemini-image cameras` lists them, the default first:
+(`--camera=1`). `gemini-image cameras` lists them and marks the default (on Linux it leaves out
+the metadata devices that cameras also have):
 
 ```console
 $ gemini-image cameras
@@ -150,9 +159,9 @@ gemini-image generate --session fox --step 1 "Give the fox a blue hat instead"
 The history entry records `--step` in its flags, and `gemini-image session` marks such steps with
 `(from step N)`, so you can see where each one branched off.
 
-Each entry records the interaction ID, the prompt, the full path of the generated image, the
-effective generation parameters (from flags, environment or `.env`) and the flags given on the
-command line. `--api-key` is never stored.
+Each entry records the interaction ID, the prompt, the full paths of any reference images (`images`),
+the full path of the generated image, the effective generation parameters (from flags, environment or
+`.env`) and the flags given on the command line. `--api-key` is never stored.
 
 ```json
 {
@@ -169,7 +178,7 @@ command line. `--api-key` is never stored.
 ```
 
 To look back at a session, run `gemini-image session NAME`. For each turn it prints the prompt,
-shows the image in the terminal (when the terminal supports it) and prints the image path. Images
+shows the image in the terminal (when the terminal supports it and `--preview` is on) and prints the image path. Images
 that were moved or deleted get a warning on stderr.
 
 ```sh
@@ -177,7 +186,7 @@ gemini-image session fox
 ```
 
 `gemini-image sessions` lists all sessions by name with their number of steps and, on a terminal
-that supports it, a small thumbnail of each session's latest image:
+that supports it and with `--preview` on, a small thumbnail of each session's latest image:
 
 ```console
 $ gemini-image sessions
@@ -192,7 +201,7 @@ fox  3 steps
 
 The conversation itself is stored by the API, not locally. If the API no longer has the previous
 interaction, continuing fails with an API error; start a new session then. Names may contain
-letters, digits, `.`, `_` and `-`.
+letters, digits, `.`, `_` and `-`, and must start with a letter or digit.
 
 ### Progress and thoughts
 
@@ -201,8 +210,8 @@ stage (`thinking`, `rendering`, …) and the elapsed time. The status line only 
 is a terminal.
 
 Gemini 3 image models think before rendering and may draw up to two interim images to try out the
-composition. With `--thoughts`, the CLI asks for thought summaries and prints them to stderr as they
-arrive. It also previews the interim images in the terminal; where previews aren't available, it
+composition. With `--thoughts`, the CLI asks for thought summaries and prints each one to stderr as soon
+as it's complete. It also previews the interim images in the terminal; where previews aren't available, it
 prints `[interim image]` instead. If the last interim image is the same as the final image, it isn't
 drawn twice. Older models such as `gemini-2.5-flash-image` don't think, so they only report status.
 
@@ -210,6 +219,18 @@ On a terminal, stderr output is colored: thought headings stand out and the thou
 search suggestions and sources get colored labels and links, and notes, warnings and errors are
 highlighted. Set `NO_COLOR` to any non-empty value to turn colors off. Output that isn't going to a
 terminal is never colored.
+
+If the connection to the API drops while the image is generated, the API cancels the generation, and it
+can't be fetched or resumed afterwards. If the image had already arrived, the CLI saves it with a warning,
+but doesn't add it to a `--session`; search suggestions and sources that hadn't arrived yet are missing.
+Otherwise it fails with `connection to the API lost before the image arrived, try again`.
+
+The API sometimes rejects a request by just closing the connection, often while the model is still
+thinking. Then the CLI asks the API what happened and shows its error instead, for example
+`generation failed: There was a problem processing your request. … (INVALID_ARGUMENT)`. Thoughts that
+had arrived are still printed with `--thoughts`. In the cases seen so far, the model was planning to draw
+real, named people (a cartoon about current news); trying again may lead to a different idea that works.
+API errors are shown as `message (code)`.
 
 ### Grounding with Google Search
 
@@ -249,6 +270,9 @@ the protocol. If it doesn't, or if stdout isn't a terminal (for example when out
 JPEG images are converted to PNG for display. Inside tmux, the preview usually doesn't show, because tmux doesn't
 pass the protocol through by default.
 
+`--preview` is a global flag: `--preview=false` (or `GEMINI_PREVIEW=false`) turns off every image the CLI draws,
+in `generate` (the image, interim images and the camera photo) as well as in `session` and `sessions`.
+
 The path of the saved image is printed to stdout, and errors go to stderr.
 This makes the tool easy to use in scripts:
 
@@ -280,10 +304,11 @@ cmd/
   env.go         .env loading and "!command" values
 internal/
   kitty/         terminal support detection and kitty graphics output
+testdata/        portraits for the reference-image tests
 ```
 
 ```sh
-go test ./...
+go test -count=1 -shuffle=on ./...
 ```
 
 To see exactly what the API sends, use the hidden `--debug-events FILE` flag. It writes the request and

@@ -112,6 +112,14 @@ func TestSanitize(t *testing.T) {
 	}
 }
 
+// A line break in a link would cut the OSC 8 sequence.
+func TestLinkOneLine(t *testing.T) {
+	p := &progress{hyperlinks: true}
+	if got := p.link(link{text: "a\ntitle", url: "https://x.example/\npath"}); strings.Contains(got, "\n") {
+		t.Errorf("line break in link: %q", got)
+	}
+}
+
 func TestStreamImageWithSearch(t *testing.T) {
 	final := testPNG(t, color.Black)
 	b64 := base64.StdEncoding.EncodeToString(final)

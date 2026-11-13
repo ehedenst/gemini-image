@@ -10,6 +10,7 @@ import (
 
 	"github.com/ehedenst/gemini-image/internal/kitty"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var sessionCmd = &cobra.Command{
@@ -50,16 +51,19 @@ func runSession(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("reading session: %w", err)
 	}
-	showSession(cmd.OutOrStdout(), cmd.ErrOrStderr(), s)
+	showSession(cmd.OutOrStdout(), cmd.ErrOrStderr(), s, viper.GetBool("preview"))
 	return nil
 }
 
-// showSession prints each turn's prompt, draws its image when out is a
-// terminal with kitty graphics support, and prints the image path followed by
-// a blank line.
-func showSession(out, errOut io.Writer, s *session) {
+// showSession prints each turn's prompt, draws its image when preview is on
+// and out is a terminal with kitty graphics support, and prints the image path
+// followed by a blank line.
+func showSession(out, errOut io.Writer, s *session, preview bool) {
 	color := useColor(out)
 	f, _ := out.(*os.File)
+	if !preview {
+		f = nil
+	}
 	for i, in := range s.Interactions {
 		from := ""
 		if step, ok := in.Flags["step"]; ok { // run with --step: it branched off that step
@@ -102,7 +106,7 @@ var sessionsCmd = &cobra.Command{
 			fmt.Fprintln(cmd.ErrOrStderr(), "no sessions")
 			return nil
 		}
-		listSessions(cmd.OutOrStdout(), cmd.ErrOrStderr(), paths)
+		listSessions(cmd.OutOrStdout(), cmd.ErrOrStderr(), paths, viper.GetBool("preview"))
 		return nil
 	},
 }
@@ -112,11 +116,15 @@ func init() { rootCmd.AddCommand(sessionsCmd) }
 // thumbnailRows is how many terminal rows a session thumbnail takes.
 const thumbnailRows = 10
 
-// listSessions prints each session's name and number of steps and, on a
-// terminal with kitty graphics support, a thumbnail of its last image.
-func listSessions(out, errOut io.Writer, paths []string) {
+// listSessions prints each session's name and number of steps and, when
+// preview is on and out is a terminal with kitty graphics support, a thumbnail
+// of its last image.
+func listSessions(out, errOut io.Writer, paths []string, preview bool) {
 	color, warn := useColor(out), paint(useColor(errOut), sgrYellow, "warning:")
 	f, _ := out.(*os.File)
+	if !preview {
+		f = nil
+	}
 	for _, path := range paths {
 		name := strings.TrimSuffix(filepath.Base(path), ".json")
 		s, err := loadSession(path)

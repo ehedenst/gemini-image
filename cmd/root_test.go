@@ -22,9 +22,24 @@ func TestExitCode(t *testing.T) {
 	}
 }
 
+// TestExecuteInterrupted: Ctrl-C also reaches child processes such as a
+// "!command", which then fail with their own error; the exit code must still
+// be 130.
+func TestExecuteInterrupted(t *testing.T) {
+	resetCLI(t)
+	// Interrupt this process as Ctrl-C would, then wait to be killed.
+	t.Setenv("GEMINI_API_KEY", "!kill -INT $PPID; exec sleep 10")
+	rootCmd.SetErr(io.Discard)
+	rootCmd.SetArgs([]string{"--env-file", "/dev/null", "generate", "--size=", "--aspect-ratio=", "--search=", "x"})
+	if got := Execute(); got != 130 {
+		t.Errorf("exit code %d, want 130", got)
+	}
+}
+
 // TestCLIUsageErrors runs the real command tree. Every case fails before any
-// API call. Cobra and Viper state is global, so --size goes in the last case.
+// API call. Flag values persist between cases, so --size goes in the last one.
 func TestCLIUsageErrors(t *testing.T) {
+	resetCLI(t)
 	t.Setenv("GEMINI_API_KEY", "")
 	t.Setenv("GEMINI_ASPECT_RATIO", "")
 	t.Setenv("GEMINI_SIZE", "")

@@ -9,11 +9,13 @@ import (
 	"fmt"
 	"image"
 	"io"
+	"net"
 	"os"
 	"strings"
 
 	"github.com/ehedenst/gemini-image/internal/kitty"
 	"google.golang.org/genai"
+	"google.golang.org/genai/interactions/models/apierrors"
 	"google.golang.org/genai/interactions/models/interactions"
 	"google.golang.org/genai/interactions/models/operations"
 )
@@ -34,6 +36,7 @@ type progress struct {
 	gotSuggestions bool            // at least one set of search suggestions was collected
 	events         io.Writer       // --debug-events: request and raw events as JSON lines
 	interactionID  string          // ID of the interaction, for continuing a --session
+	cutShort       error           // the connection was lost after the image arrived
 }
 
 func (p *progress) setStatus(msg string) { p.status.Set(msg) }
@@ -93,13 +96,15 @@ func streamImage(ctx context.Context, client *genai.Client, req interactions.Cre
 		Body: operations.NewCreateInteractionRequestBody(req),
 	})
 	if err != nil {
-		return nil, "", err
+		return nil, "", readableAPIError(err)
 	}
 	stream := res.InteractionSSEStreamEvent
 	if stream == nil {
 		return nil, "", errors.New("expected a streamed response")
 	}
 	defer stream.Close()
+	// Thoughts are printed when their step stops; show the ones an error cut off.
+	defer p.flushThought()
 
 	c := newCollector(p)
 	for stream.Next() {
@@ -111,9 +116,75 @@ func streamImage(ctx context.Context, client *genai.Client, req interactions.Cre
 		}
 	}
 	if err := stream.Err(); err != nil {
-		return nil, "", err
+		// When the connection is lost, the interaction ends and it can't be
+		// resumed, so only what has arrived is left.
+		var netErr net.Error
+		lost := ctx.Err() == nil && (errors.Is(err, io.ErrUnexpectedEOF) || errors.As(err, &netErr))
+		switch {
+		case !lost:
+			return nil, "", err
+		case c.final != nil:
+			// Lost after interaction.completed: only the closing [DONE] is missing.
+		case c.imageDone:
+			p.cutShort = err
+		default:
+			p.setStatus("connection lost, checking the interaction")
+			if why := failure(ctx, client, p.interactionID); why != "" {
+				return nil, "", fmt.Errorf("generation failed: %s", why)
+			}
+			return nil, "", fmt.Errorf("connection to the API lost before the image arrived, try again: %w", err)
+		}
 	}
 	return c.result()
+}
+
+// failure returns why the interaction id failed, or "" if it didn't (yet).
+// The API sometimes fails an interaction by just closing the stream, without
+// an error event; the error is only on the interaction itself.
+func failure(ctx context.Context, client *genai.Client, id string) string {
+	if id == "" {
+		return ""
+	}
+	res, err := client.Interactions.Get(ctx, operations.GetInteractionByIDRequest{ID: id})
+	if err != nil || res.Interaction == nil || res.Interaction.Status != interactions.InteractionStatusFailed {
+		return ""
+	}
+	var msgs []string
+	for _, e := range res.Interaction.Errors {
+		msgs = append(msgs, errorText(&e))
+	}
+	if len(msgs) == 0 {
+		return "unknown error"
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// errorText renders an API error as "message (code)".
+func errorText(e *interactions.Error) string {
+	msg := "unknown error"
+	if e != nil && e.Message != nil && *e.Message != "" {
+		msg = oneLine(*e.Message)
+	}
+	if e != nil && e.Code != nil && *e.Code != "" {
+		msg += " (" + oneLine(*e.Code) + ")"
+	}
+	return msg
+}
+
+// readableAPIError turns the SDK's errors for API error responses, which
+// print as raw JSON, into "message (code)".
+func readableAPIError(err error) error {
+	var (
+		clientErr *apierrors.CreateInteractionClientError
+		serverErr *apierrors.CreateInteractionServerError
+	)
+	switch {
+	case errors.As(err, &clientErr):
+		return errors.New(errorText(&clientErr.Error_))
+	case errors.As(err, &serverErr):
+		return errors.New(errorText(&serverErr.Error_))
+	}
+	return err
 }
 
 // collector turns stream events into progress updates and gathers the output.
@@ -122,6 +193,7 @@ type collector struct {
 	stepTypes map[int]interactions.StepType
 	images    map[int][]*interactions.ImageDelta // image deltas per model_output step
 	lastImage int                                // step index of the latest image, -1 if none
+	imageDone bool                               // the latest image's step has stopped
 	text      strings.Builder                    // model text output, e.g. a refusal
 	status    string
 	final     *interactions.InteractionSseEventInteraction
@@ -141,10 +213,7 @@ func (c *collector) handle(ev *interactions.InteractionSSEStreamEvent) error {
 		return nil
 	}
 	if e := ev.GetDataError(); e != nil {
-		msg := "unknown error"
-		if e.Error != nil && e.Error.Message != nil {
-			msg = *e.Error.Message
-		}
+		msg := errorText(e.Error)
 		return fmt.Errorf("generation failed: %s", msg)
 	}
 	if cr := ev.GetDataInteractionCreated(); cr != nil {
@@ -186,6 +255,9 @@ func (c *collector) handle(ev *interactions.InteractionSSEStreamEvent) error {
 		case interactions.StepTypeModelOutput:
 			if c.lastImage >= 0 {
 				c.p.setStatus("finishing")
+			}
+			if s.Index == c.lastImage {
+				c.imageDone = true
 			}
 		}
 	}
@@ -238,6 +310,7 @@ func (c *collector) delta(d *interactions.StepDelta) {
 	if img := d.GetDeltaImage(); img != nil && img.Data != nil {
 		c.images[d.Index] = append(c.images[d.Index], img)
 		c.lastImage = d.Index
+		c.imageDone = false
 	}
 	if t := d.GetDeltaText(); t != nil {
 		c.text.WriteString(t.Text)

@@ -8,12 +8,11 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
-
-	"github.com/spf13/pflag"
 )
 
 func TestSessionFile(t *testing.T) {
@@ -25,6 +24,50 @@ func TestSessionFile(t *testing.T) {
 		if _, err := sessionFile(bad); err == nil {
 			t.Errorf("%q: no error", bad)
 		}
+	}
+}
+
+// TestSessionParallelRun: a step that another run saved while this one was
+// generating is kept. Also checks that the size is stored as it was sent.
+func TestSessionParallelRun(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	path, _ := sessionFile("fox")
+	other := func() { _ = saveSession(path, &session{Interactions: []interaction{{ID: "v1_other"}}}) }
+	events := append([]string{`{"interaction":{"id":"v1_mine"},"event_type":"interaction.created"}`}, imageEvents(t)...)
+	if _, _, err := generateCLI(t, sse(events...), other, "--session", "fox", "--size", "2k", "-o", filepath.Join(t.TempDir(), "out.png"), "x"); err != nil {
+		t.Fatal(err)
+	}
+	s, err := loadSession(path)
+	if err != nil || len(s.Interactions) != 2 || s.Interactions[0].ID != "v1_other" || s.Interactions[1].ID != "v1_mine" {
+		t.Fatalf("session = %+v, %v; want v1_other then v1_mine", s, err)
+	}
+	if got := s.Interactions[1].Parameters.Size; got != "2K" {
+		t.Errorf("size stored as %q, want 2K", got)
+	}
+}
+
+// TestSessionCutOff: when the connection drops after the image, the image is
+// saved with a warning, but the session isn't advanced, since the API cancels
+// interactions whose connection drops.
+func TestSessionCutOff(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	out := filepath.Join(t.TempDir(), "out.png")
+	events := append([]string{`{"interaction":{"id":"v1_cut"},"event_type":"interaction.created"}`}, imageEvents(t)...)
+	stderr, _, err := generateCLI(t, cutOff(sse(events...)), nil, "--session", "fox", "--search", "web", "-o", out, "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(out); err != nil {
+		t.Errorf("image not saved: %v", err)
+	}
+	for _, want := range []string{"session not updated: the response was cut short", "lost after the image arrived", "search suggestions and sources may be missing"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("stderr lacks %q: %s", want, stderr)
+		}
+	}
+	path, _ := sessionFile("fox")
+	if _, err := os.Stat(path); err == nil {
+		t.Error("session saved")
 	}
 }
 
@@ -54,23 +97,7 @@ func TestSessionTurns(t *testing.T) {
 	defer srv.Close()
 	t.Setenv("GOOGLE_GEMINI_BASE_URL", srv.URL)
 
-	// Flag values outlive Execute; reset them for other tests.
-	t.Cleanup(func() {
-		for _, f := range []string{"session", "output", "size", "aspect-ratio", "search"} {
-			_ = generateCmd.Flags().Set(f, "")
-		}
-		_ = generateCmd.Flags().Set("preview", "true")
-		_ = generateCmd.Flags().Set("step", "0")
-		generateCmd.Flags().Lookup("step").Changed = false
-		img := generateCmd.Flags().Lookup("image")
-		_ = img.Value.(pflag.SliceValue).Replace(nil)
-		img.Changed = false
-		for _, f := range []string{"api-key", "model", "env-file"} {
-			fl := rootCmd.PersistentFlags().Lookup(f)
-			_ = fl.Value.Set(fl.DefValue)
-			fl.Changed = false
-		}
-	})
+	resetCLI(t)
 	out := filepath.Join(t.TempDir(), "out.png")
 	var stderr bytes.Buffer
 	rootCmd.SetOut(io.Discard)
