@@ -34,8 +34,8 @@ func TestExecuteInterrupted(t *testing.T) {
 	rootCmd.SetErr(&stderr)
 	defer rootCmd.SetErr(io.Discard)
 	rootCmd.SetArgs([]string{"--env-file", "/dev/null", "generate", "--size=", "--aspect-ratio=", "--search=", "x"})
-	if got := Execute(); got != 130 || stderr.String() != "error: interrupted\n" {
-		t.Errorf("exit code %d, stderr %q; want 130, \"error: interrupted\"", got, stderr.String())
+	if got := Execute(); got != 130 || stderr.String() != "interrupted\n" {
+		t.Errorf("exit code %d, stderr %q; want 130, \"interrupted\" (not an error)", got, stderr.String())
 	}
 }
 

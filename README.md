@@ -165,6 +165,12 @@ gemini-image generate --session fox --step 1 "Give the fox a blue hat instead"
 The history entry records `--step` in its flags, and `gemini-image session` marks such steps with
 `(from step N)`, so you can see where each one branched off.
 
+To drop the branches you didn't continue, run `gemini-image session --compact NAME`. It follows the
+last step back to the first, through the step each one continued from, and keeps only those steps.
+Their `--step` flags are removed, since each kept step now continues from the one before it, and the
+steps are numbered again from 1. For steps 1, 2, 3, 4 (from step 2), 5 and 6 (from step 4), it keeps
+1, 2, 4 and 6, which become steps 1 to 4. The images of the dropped steps are kept.
+
 Each entry records the interaction ID, the prompt, the full paths of any reference images (`images`),
 the full path of the generated image, the effective generation parameters (from flags, environment or
 `.env`) and the flags given on the command line. `--api-key` is never stored.
@@ -203,7 +209,21 @@ fox  3 steps
 [thumbnail]
 ```
 
-`gemini-image session --delete NAME` deletes a session's history. The generated images are kept.
+`gemini-image session --delete NAME` deletes a session's history, and `gemini-image session --compact
+NAME` drops the steps the last one wasn't built on (see above). `gemini-image sessions --delete` and
+`gemini-image sessions --compact` do the same for every session; a session that fails (for example a
+damaged file) is reported at the end, and the others are still done. The generated images are kept.
+
+Deleting asks for confirmation first, naming the sessions; only `y` or `yes` deletes. Any other
+answer deletes nothing, which isn't an error (exit code 0). Without an answer, for example in a script
+with no input, nothing is deleted and the command fails. Add `-f`/`--force` to delete without asking:
+
+```console
+$ gemini-image session --delete fox
+delete session "fox"? The images are kept. [y/N] y
+deleted session "fox"
+$ gemini-image sessions --delete --force
+```
 
 The conversation itself is stored by the API, not locally. If the API no longer has the previous
 interaction, continuing fails with an API error; start a new session then. Names may contain
@@ -287,7 +307,7 @@ open "$(gemini-image generate 'A red bicycle')"
 ```
 
 Exit codes: `0` success, `1` runtime or API error, `2` invalid arguments, flags or settings (including a
-missing API key), `130` interrupted.
+missing API key), `130` interrupted with Ctrl-C (reported as `interrupted`, not as an error).
 
 Shell completion (including values for `--aspect-ratio`, `--size` and `--search`) is available through
 `gemini-image completion <bash|zsh|fish|powershell>`.
@@ -303,7 +323,7 @@ cmd/
   status.go      animated status line on stderr
   color.go       ANSI colors for terminal output
   session.go     --session: the session history file
-  show.go        session and sessions subcommands: show a session, list all sessions
+  show.go        session and sessions subcommands: show, compact or delete one session or all
   search.go      Google Search grounding: tool, suggestions, citations
   images.go      reference images (-i): type detection, request input
   camera.go      --camera: photo via ffmpeg; cameras subcommand

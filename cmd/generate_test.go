@@ -101,8 +101,8 @@ func TestOutputConversion(t *testing.T) {
 	}
 }
 
-// TestConvertImage: a JPEG from the API saved as .png is a PNG of the same
-// picture, and an image that can't be decoded is kept as it is.
+// TestConvertImage: a JPEG from the API saved as .png is an 8-bit PNG of the
+// same picture, and an image that can't be decoded is kept as it is.
 func TestConvertImage(t *testing.T) {
 	src := image.NewRGBA(image.Rect(0, 0, 8, 8))
 	draw.Draw(src, src.Bounds(), image.NewUniform(color.RGBA{200, 30, 30, 255}), image.Point{}, draw.Src)
@@ -117,6 +117,10 @@ func TestConvertImage(t *testing.T) {
 	m, err := png.Decode(bytes.NewReader(out))
 	if err != nil || m.Bounds() != src.Bounds() {
 		t.Fatalf("PNG: %v, bounds %v", err, m.Bounds())
+	}
+	// 8 bits per channel like the JPEG, not the 16 png.Encode picks for YCbCr.
+	if _, ok := m.(*image.RGBA); !ok {
+		t.Errorf("PNG decodes to %T, want 8-bit *image.RGBA", m)
 	}
 	if r, g, b, _ := m.At(4, 4).RGBA(); r>>8 < 190 || g>>8 > 45 || b>>8 > 45 {
 		t.Errorf("color %d,%d,%d; want about 200,30,30", r>>8, g>>8, b>>8)

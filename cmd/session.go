@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strconv"
 
 	"github.com/spf13/pflag"
 )
@@ -56,6 +58,39 @@ func (s *session) stepID(name string, step int) (string, error) {
 		return "", fmt.Errorf("--step: session %q has steps 1 to %d, got %d", name, n, step)
 	}
 	return s.Interactions[step-1].ID, nil
+}
+
+// compact keeps only the steps the last one was built on: it follows each
+// step back to the one it continued from (the one its --step named, or else
+// the one before it) and drops the other branches. The --step flags are
+// cleared, since each kept step then continues from the one before it. It
+// returns the numbers the kept steps had.
+func (s *session) compact() ([]int, error) {
+	var kept []int
+	for i := len(s.Interactions); i > 0; {
+		kept = append(kept, i)
+		from := i - 1
+		if v, ok := s.Interactions[i-1].Flags["step"]; ok {
+			// A step can only continue from one saved before it.
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 1 || n >= i {
+				return nil, fmt.Errorf("step %d continued from step %q, which isn't an earlier step", i, v)
+			}
+			from = n
+		}
+		i = from
+	}
+	slices.Reverse(kept)
+	steps := make([]interaction, len(kept))
+	for j, n := range kept {
+		steps[j] = s.Interactions[n-1]
+		delete(steps[j].Flags, "step")
+		if len(steps[j].Flags) == 0 {
+			steps[j].Flags = nil
+		}
+	}
+	s.Interactions = steps
+	return kept, nil
 }
 
 // Session names become file names, so only allow safe characters (and no

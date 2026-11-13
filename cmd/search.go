@@ -137,8 +137,8 @@ func (p *progress) noteMissingSuggestions(searches int) {
 	if searches == 1 {
 		plural = ""
 	}
-	p.grounding = append(p.grounding, paint(p.color, sgrYellow, fmt.Sprintf(
-		"note: the model used Google Search (%d search%s), but the API sent no search suggestions", searches, plural)))
+	p.grounding = append(p.grounding, paint(p.color, sgrNote, "note:")+fmt.Sprintf(
+		" the model used Google Search (%d search%s), but the API sent no search suggestions", searches, plural))
 }
 
 // printGrounding prints the collected search suggestions and sources. It runs

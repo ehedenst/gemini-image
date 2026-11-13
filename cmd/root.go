@@ -60,17 +60,19 @@ func Execute() int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	err := rootCmd.ExecuteContext(ctx)
-	code := exitCode(err)
+	errOut := rootCmd.ErrOrStderr()
 	if err != nil && ctx.Err() != nil {
 		// Whatever failed after Ctrl-C failed because of it; child processes
 		// (ffmpeg, "!command") get the signal too and fail with their own error
-		// instead of context.Canceled.
-		err, code = errors.New("interrupted"), 130
+		// instead of context.Canceled. The user asked to stop, so it's not
+		// reported as an error.
+		fmt.Fprintln(errOut, paint(useColor(errOut), sgrDim, "interrupted"))
+		return 130
 	}
 	if err != nil {
-		fmt.Fprintln(rootCmd.ErrOrStderr(), paint(useColor(rootCmd.ErrOrStderr()), sgrRed, "error:"), err)
+		fmt.Fprintln(errOut, paint(useColor(errOut), sgrRed, "error:"), err)
 	}
-	return code
+	return exitCode(err)
 }
 
 // usageError marks errors caused by invalid flags, arguments or settings.

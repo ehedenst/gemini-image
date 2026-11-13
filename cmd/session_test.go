@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"encoding/base64"
+	"fmt"
 	"image/color"
 	"io"
 	"maps"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -168,5 +170,41 @@ func TestSessionTurns(t *testing.T) {
 	}
 	if len(reqs) != 3 {
 		t.Errorf("invalid --step reached the API: %d requests", len(reqs))
+	}
+}
+
+// TestSessionCompact: compacting keeps the steps the last one was built on
+// and clears their --step flags; a --step that doesn't name an earlier step
+// leaves the session as it was.
+func TestSessionCompact(t *testing.T) {
+	// 1, 2, 3, 4 from step 2, 5, 6 from step 4.
+	s := &session{Interactions: []interaction{
+		{ID: "1", Flags: map[string]string{"session": "fox"}},
+		{ID: "2", Flags: map[string]string{"session": "fox"}},
+		{ID: "3", Flags: map[string]string{"session": "fox"}},
+		{ID: "4", Flags: map[string]string{"session": "fox", "step": "2"}},
+		{ID: "5"},
+		{ID: "6", Flags: map[string]string{"step": "4"}},
+	}}
+	kept, err := s.compact()
+	if err != nil || !slices.Equal(kept, []int{1, 2, 4, 6}) {
+		t.Fatalf("kept %v, %v; want [1 2 4 6]", kept, err)
+	}
+	want := []interaction{
+		{ID: "1", Flags: map[string]string{"session": "fox"}},
+		{ID: "2", Flags: map[string]string{"session": "fox"}},
+		{ID: "4", Flags: map[string]string{"session": "fox"}},
+		{ID: "6"},
+	}
+	if !reflect.DeepEqual(s.Interactions, want) {
+		t.Errorf("got %+v\nwant %+v", s.Interactions, want)
+	}
+
+	for _, step := range []string{"x", "0", "3", "4"} {
+		s := &session{Interactions: []interaction{{ID: "1"}, {ID: "2"}, {ID: "3", Flags: map[string]string{"step": step}}}}
+		before := fmt.Sprint(s.Interactions)
+		if _, err := s.compact(); err == nil || fmt.Sprint(s.Interactions) != before {
+			t.Errorf("--step %q on step 3: err = %v, session %v", step, err, s.Interactions)
+		}
 	}
 }

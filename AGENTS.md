@@ -36,8 +36,9 @@ Rebuild `./gemini-image` after every change: it's what gets run by hand. Keep th
   to stderr.
 - Exit codes: 0 ok, 1 runtime error, 2 usage error (wrap in `usageError`, including from
   `Args` validators), 130 interrupted. `SilenceUsage`/`SilenceErrors` are on; `Execute` prints
-  `error: …`, and after Ctrl-C reports any failure as `interrupted` (130), since child processes
-  get the signal too and fail with their own errors.
+  `error: …`. After Ctrl-C it prints a plain `interrupted` instead (130), whatever failed: the
+  user chose to stop, and child processes get the signal too and fail with their own errors.
+  Likewise, declining a prompt prints a plain note and exits 0; only no answer is an error.
 - Show API errors as `message (code)` (`errorText`, `readableAPIError` in `cmd/stream.go`), never
   as the SDK's raw JSON.
 - Color only via `cmd/color.go` (`useColor`, `paint`); it respects `NO_COLOR` and non-TTYs.

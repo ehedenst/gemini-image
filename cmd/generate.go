@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"image/draw"
 	"image/gif"
 	"image/jpeg"
 	"image/png"
@@ -102,7 +103,13 @@ func imageFormat(aspectRatio, size string) (*interactions.CreateModelInteraction
 
 // outputEncoders write the image types an --output extension can ask for.
 var outputEncoders = map[string]func(io.Writer, image.Image) error{
-	"image/png":  png.Encode,
+	"image/png": func(w io.Writer, m image.Image) error {
+		// png.Encode writes 16 bits per channel for anything but plain RGB(A),
+		// such as a decoded JPEG; the sources here have 8.
+		rgba := image.NewRGBA(m.Bounds())
+		draw.Draw(rgba, rgba.Bounds(), m, m.Bounds().Min, draw.Src)
+		return png.Encode(w, rgba)
+	},
 	"image/jpeg": func(w io.Writer, m image.Image) error { return jpeg.Encode(w, m, &jpeg.Options{Quality: 95}) },
 	"image/gif":  func(w io.Writer, m image.Image) error { return gif.Encode(w, m, nil) },
 }
@@ -238,7 +245,7 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	if cmd.Flags().Changed("camera") {
 		device, _ := cmd.Flags().GetString("camera")
 		camera = func() ([]byte, error) {
-			fmt.Fprintln(cmd.ErrOrStderr(), "taking a photo with the camera…")
+			fmt.Fprintln(cmd.ErrOrStderr(), paint(useColor(cmd.ErrOrStderr()), sgrCyan, "taking a photo with the camera…"))
 			photo, err := cameraSnapshot(ctx, device)
 			// Show the photo before generating, so it's clear what was sent.
 			if out, ok := cmd.OutOrStdout().(*os.File); ok && err == nil && viper.GetBool("preview") {

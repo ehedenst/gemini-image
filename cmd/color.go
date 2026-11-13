@@ -11,10 +11,13 @@ import (
 
 // ANSI SGR codes used for terminal output.
 const (
+	sgrBold    = "1" // prompts, session names in messages
 	sgrDim     = "2"
 	sgrRed     = "1;31"
+	sgrGreen   = "32" // what was done: "deleted", "compacted"
 	sgrYellow  = "33"
 	sgrCyan    = "36"
+	sgrNote    = "1;36" // bold cyan: "note:", the [y/N] of prompts
 	sgrHeading = "1;35" // bold magenta: thought headings
 	sgrLabel   = "1;34" // bold blue: "Google Search suggestions:", "Source:"
 	sgrLink    = "4;36" // underlined cyan
