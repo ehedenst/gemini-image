@@ -351,3 +351,7 @@ The file also contains search results, so treat it like the generated output. Th
 `{"end": {…}}` with the seconds the stream took (`elapsed_s`), when its last event arrived
 (`last_event_s`), the number of events and any error, which shows whether a failed run went quiet first
 or broke off suddenly.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
