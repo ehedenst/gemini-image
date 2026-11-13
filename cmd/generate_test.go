@@ -2,7 +2,12 @@ package cmd
 
 import (
 	"bytes"
+	"image"
 	"image/color"
+	"image/draw"
+	"image/jpeg"
+	"image/png"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -63,18 +68,63 @@ func TestBadOutput(t *testing.T) {
 	}
 }
 
-// TestOutputTypeWarning: the API decides the image type, so an --output
-// extension that says otherwise gets a warning.
-func TestOutputTypeWarning(t *testing.T) {
+// TestOutputConversion: the API decides the image type; an --output
+// extension for another type converts the image to it, if that type can be
+// written, and any other extension gets the image as it is.
+func TestOutputConversion(t *testing.T) {
 	dir := t.TempDir()
-	for name, warn := range map[string]bool{"out.png": false, "out.jpg": true, "out": false} {
-		stderr, _, err := generateCLI(t, sse(imageEvents(t)...), nil, "-o", filepath.Join(dir, name), "x")
+	for name, want := range map[string]string{
+		"out.png": "image/png", "out.jpg": "image/jpeg", "out.JPEG": "image/jpeg", "out.gif": "image/gif",
+		"out": "image/png", "out.txt": "image/png",
+	} {
+		path := filepath.Join(dir, name)
+		stderr, _, err := generateCLI(t, sse(imageEvents(t)...), nil, "-o", path, "x")
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
-		if got := strings.Contains(stderr, "warning:"); got != warn {
-			t.Errorf("%s: warning = %v, want %v (stderr %q)", name, got, warn, stderr)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
 		}
+		cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+		if got := http.DetectContentType(data); got != want || err != nil || cfg.Width != 4 || cfg.Height != 4 {
+			t.Errorf("%s: saved %s (%v, %dx%d), want a 4x4 %s", name, got, err, cfg.Width, cfg.Height, want)
+		}
+		// Only an extension the image doesn't match after all gets a warning.
+		if warn := strings.Contains(stderr, "warning:"); warn != (name == "out.txt") {
+			t.Errorf("%s: warning = %v (stderr %q)", name, warn, stderr)
+		}
+	}
+	// An image type it can't be converted to is caught before generating.
+	if _, requests, err := generateCLI(t, sse(imageEvents(t)...), nil, "-o", filepath.Join(dir, "out.webp"), "x"); exitCode(err) != 2 || requests != 0 {
+		t.Errorf("-o out.webp: err = %v, %d requests; want a usage error and none", err, requests)
+	}
+}
+
+// TestConvertImage: a JPEG from the API saved as .png is a PNG of the same
+// picture, and an image that can't be decoded is kept as it is.
+func TestConvertImage(t *testing.T) {
+	src := image.NewRGBA(image.Rect(0, 0, 8, 8))
+	draw.Draw(src, src.Bounds(), image.NewUniform(color.RGBA{200, 30, 30, 255}), image.Point{}, draw.Src)
+	var jpg bytes.Buffer
+	if err := jpeg.Encode(&jpg, src, nil); err != nil {
+		t.Fatal(err)
+	}
+	out, err := convertImage("fox.png", "image/jpeg", jpg.Bytes())
+	if err != nil || http.DetectContentType(out) != "image/png" {
+		t.Fatalf("got %s, %v; want a PNG", http.DetectContentType(out), err)
+	}
+	m, err := png.Decode(bytes.NewReader(out))
+	if err != nil || m.Bounds() != src.Bounds() {
+		t.Fatalf("PNG: %v, bounds %v", err, m.Bounds())
+	}
+	if r, g, b, _ := m.At(4, 4).RGBA(); r>>8 < 190 || g>>8 > 45 || b>>8 > 45 {
+		t.Errorf("color %d,%d,%d; want about 200,30,30", r>>8, g>>8, b>>8)
+	}
+
+	webp := []byte("RIFF\x00\x00\x00\x00WEBPVP8 not really")
+	if out, err := convertImage("fox.png", "image/webp", webp); err == nil || !bytes.Equal(out, webp) {
+		t.Errorf("undecodable: got %d bytes, %v; want the data as it is and an error", len(out), err)
 	}
 }
 

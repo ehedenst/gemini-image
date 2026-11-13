@@ -4,6 +4,11 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"image"
+	"image/gif"
+	"image/jpeg"
+	"image/png"
+	"io"
 	"io/fs"
 	"mime"
 	"net/http"
@@ -43,7 +48,7 @@ var generateCmd = &cobra.Command{
 
 func init() {
 	f := generateCmd.Flags()
-	f.StringP("output", "o", "", "output file (default image-<timestamp>.<ext>)")
+	f.StringP("output", "o", "", "output file; .png, .jpg and .gif convert the image to that type (default image-<timestamp>.<ext>)")
 	f.String("aspect-ratio", "", "aspect ratio: "+strings.Join(aspectRatios, ", ")+" (env GEMINI_ASPECT_RATIO, default model's choice)")
 	f.String("size", "", "image size: "+strings.Join(imageSizes, ", ")+" (env GEMINI_SIZE, default model's choice)")
 	f.Bool("thoughts", false, "print the model's thought summaries and preview its interim images (env GEMINI_THOUGHTS)")
@@ -95,11 +100,22 @@ func imageFormat(aspectRatio, size string) (*interactions.CreateModelInteraction
 	return &rf, nil
 }
 
+// outputEncoders write the image types an --output extension can ask for.
+var outputEncoders = map[string]func(io.Writer, image.Image) error{
+	"image/png":  png.Encode,
+	"image/jpeg": func(w io.Writer, m image.Image) error { return jpeg.Encode(w, m, &jpeg.Options{Quality: 95}) },
+	"image/gif":  func(w io.Writer, m image.Image) error { return gif.Encode(w, m, nil) },
+}
+
 // checkOutput catches an --output that can't be written before anything is
-// generated: a directory, or a file in a directory that doesn't exist.
+// generated: a directory, a file in a directory that doesn't exist, or an
+// image type the image can't be converted to.
 func checkOutput(path string) error {
 	if path == "" {
 		return nil
+	}
+	if t := mime.TypeByExtension(filepath.Ext(path)); strings.HasPrefix(t, "image/") && outputEncoders[t] == nil {
+		return fmt.Errorf("--output: can't save images as %s, use .png, .jpg or .gif", t)
 	}
 	if fi, err := os.Stat(path); err == nil && fi.IsDir() {
 		return fmt.Errorf("--output: %s is a directory", path)
@@ -113,6 +129,29 @@ func checkOutput(path string) error {
 		return fmt.Errorf("--output: %s is not a directory", dir)
 	}
 	return nil
+}
+
+// convertImage re-encodes data, an image of type mimeType, as the image type
+// the extension of path stands for, if that's another type in
+// outputEncoders. When it can't, it returns data as it is, with an error
+// saying why the type doesn't match the extension.
+func convertImage(path, mimeType string, data []byte) ([]byte, error) {
+	want := mime.TypeByExtension(filepath.Ext(path))
+	if want == "" || want == mimeType {
+		return data, nil
+	}
+	encode := outputEncoders[want]
+	if encode == nil {
+		return data, fmt.Errorf("the image is %s, not %s as the extension suggests", mimeType, want)
+	}
+	m, _, err := image.Decode(bytes.NewReader(data))
+	if err == nil {
+		var b bytes.Buffer
+		if err = encode(&b, m); err == nil {
+			return b.Bytes(), nil
+		}
+	}
+	return data, fmt.Errorf("the image is %s; converting it to %s failed: %w", mimeType, want, err)
 }
 
 // saveImage writes data to path and returns the path. With path "" it writes
@@ -259,14 +298,14 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	if mimeType == "" {
 		mimeType = http.DetectContentType(data)
 	}
-	path, err := saveImage(output, mimeType, data)
+	converted, convertErr := convertImage(output, mimeType, data)
+	path, err := saveImage(output, mimeType, converted)
 	if err != nil {
 		p.printGrounding()
 		return fmt.Errorf("writing image: %w", err)
 	}
-	if t := mime.TypeByExtension(filepath.Ext(output)); output != "" && t != "" && t != mimeType {
-		fmt.Fprintln(cmd.ErrOrStderr(), paint(p.color, sgrYellow, "warning:"),
-			fmt.Sprintf("%s: the image is %s, not %s as the extension suggests", path, mimeType, t))
+	if convertErr != nil {
+		fmt.Fprintln(cmd.ErrOrStderr(), paint(p.color, sgrYellow, "warning:"), fmt.Sprintf("%s: %v", path, convertErr))
 	}
 	if sess != nil {
 		// Warn rather than fail: the image is already saved.

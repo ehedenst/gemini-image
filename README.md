@@ -69,7 +69,7 @@ gemini-image generate -i man.jpg -i woman.jpg "The two of them having coffee in 
 
 | Flag             | Description                                                                         |
 | ---------------- | ----------------------------------------------------------------------------------- |
-| `-o, --output`   | Output file. Default: `image-<timestamp>.<ext>` (`-2`, `-3`, … if taken), extension from the returned type. |
+| `-o, --output`   | Output file; `.png`, `.jpg`/`.jpeg` and `.gif` convert the image to that type. Default: `image-<timestamp>.<ext>` (`-2`, `-3`, … if taken), extension from the returned type. |
 | `--aspect-ratio` | `1:1`, `2:3`, `3:2`, `3:4`, `4:3`, `4:5`, `5:4`, `9:16`, `16:9`, `21:9`, `1:4`, `4:1`, `1:8`, `8:1` |
 | `--size`         | `512`, `1K`, `2K`, `4K`                                                             |
 | `--preview`      | Show images in the terminal (default `true`; disable with `--preview=false`). Applies to all commands. |
@@ -84,9 +84,13 @@ Not every model supports every aspect ratio or size. Per the docs, `1:4`, `4:1`,
 `gemini-nano-banana-2.1` and `gemini-3.1-flash-image`, and `512` is for `gemini-3.1-flash-image` (though
 `gemini-nano-banana-2.1` accepts it too). If you leave a flag out, the model's default applies.
 
-The API decides the image type. If the extension given with `-o` doesn't match it, the image is still
-saved under that name, with a warning. An `-o` in a directory that doesn't exist is an error before
-anything is generated.
+The API decides the image type (usually JPEG). If the extension given with `-o` is `.png`, `.jpg`,
+`.jpeg` or `.gif` and the image is another type, it's converted to that type: `-o fox.png` always gives a
+PNG. JPEGs are written at quality 95, and GIFs are reduced to 256 colors. Converting writes only the
+pixels, so any metadata in the API's file is not kept. Other image extensions, such as `.webp`, are an
+error before anything is generated, as is an `-o` in a directory that doesn't exist. Any other
+extension, or none, gets the image as the API sent it, with a warning if the extension suggests another
+type.
 
 ### Reference images
 
