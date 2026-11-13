@@ -10,6 +10,25 @@ on Windows) somewhere on your `PATH`; `checksums.txt` has the SHA-256 of each ar
 binaries aren't signed, so if macOS blocks one you downloaded with a browser, run
 `xattr -d com.apple.quarantine gemini-image`.
 
+Or let a script pick the right archive, check it and install it in `~/.local/bin` (Windows:
+`%LOCALAPPDATA%\Programs\gemini-image`); it prints where the binary went:
+
+```sh
+sh skills/gemini-image/scripts/install.sh                                       # macOS, Linux
+powershell -ExecutionPolicy Bypass -File skills\gemini-image\scripts\install.ps1 # Windows
+```
+
+`--version vX.Y.Z` (`-Version` on Windows) installs a specific release and `--dir` (`-Dir`) another
+directory; running it again updates to the latest release.
+
+### AI agents
+
+[`skills/gemini-image`](skills/gemini-image) is an [Agent Skill](https://agentskills.io): instructions
+that teach AI agents such as Claude Code to generate and edit images with this CLI, plus the install
+scripts above, which the agent runs if `gemini-image` isn't installed. Copy the directory into your
+agent's skills directory, for example `~/.claude/skills/` for Claude Code. The agent needs
+`GEMINI_API_KEY`, in its environment or in a `.env` file in its working directory.
+
 To build it yourself, you need Go 1.26 or later:
 
 ```sh
@@ -345,6 +364,9 @@ cmd/
   env.go         .env loading and "!command" values
 internal/
   kitty/         terminal support detection and kitty graphics output
+skills/
+  gemini-image/  Agent Skill: SKILL.md and the install scripts (scripts/install.sh, install.ps1)
+  install_test.go  runs install.sh against a fake releases server
 testdata/        portraits for the reference-image tests
 ```
 

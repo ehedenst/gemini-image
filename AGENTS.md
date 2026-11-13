@@ -26,6 +26,13 @@ Rebuild `./gemini-image` after every change: it's what gets run by hand. Keep th
 - `.github/workflows/release.yml`: on a pushed `vX.Y.Z` tag on `main`, tests, cross-builds and
   publishes a GitHub release. It sets the version with `-X …/cmd.version`, so keep that variable.
   Actions are pinned to commit SHAs with the version in a comment; update both together.
+- `skills/gemini-image/`: an [Agent Skill](https://agentskills.io/specification) for using the CLI.
+  Keep `SKILL.md` in step with user-visible changes (flags, output, exit codes). The install
+  scripts depend on the release's archive and `checksums.txt` names in `release.yml` and on the
+  `gemini-image version vX.Y.Z` output of `--version`; change them together.
+  `skills/install_test.go` tests `install.sh`; `install.ps1` has no automated test.
+  Validate with
+  `uvx --from 'git+https://github.com/agentskills/agentskills#subdirectory=skills-ref' skills-ref validate skills/gemini-image`.
 - `testdata/`: 512×512 portraits for reference-image tests; reach them from `cmd/` as
   `../testdata/<name>.jpg`. `testdata/README.md` has the prompts used to make them.
 
