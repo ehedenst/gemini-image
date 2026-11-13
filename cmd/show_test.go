@@ -306,3 +306,68 @@ func TestConfirmInterrupted(t *testing.T) {
 		t.Errorf("got %v, %v, stderr %q", ok, err, errOut.String())
 	}
 }
+
+// TestDeleteImages: --delete=all deletes the images the steps generated
+// too, but not the reference images; an image that can't be deleted keeps
+// the history, so nothing is lost track of.
+func TestDeleteImages(t *testing.T) {
+	resetCLI(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	dir := t.TempDir()
+	file := func(name string) string {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, testPNG(t, color.Black), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	exists := func(path string) bool { _, err := os.Stat(path); return err == nil }
+	ref, a, b, c := file("ref.png"), file("a.png"), file("b.png"), file("c.png")
+	save := func(name string, steps ...interaction) string {
+		path, _ := sessionFile(name)
+		if err := saveSession(path, &session{Interactions: steps}); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	// b.png twice (saved with the same -o), and one image already gone.
+	fox := save("fox", interaction{ID: "1", File: a, Images: []string{ref}}, interaction{ID: "2", File: b},
+		interaction{ID: "3", File: b}, interaction{ID: "4", File: filepath.Join(dir, "gone.png")})
+	var errOut bytes.Buffer
+	rootCmd.SetErr(&errOut)
+	defer rootCmd.SetErr(io.Discard)
+	defer rootCmd.SetIn(nil)
+
+	rootCmd.SetArgs([]string{"session", "--delete=image", "fox"})
+	if got := exitCode(rootCmd.Execute()); got != 2 || !exists(fox) || !exists(a) {
+		t.Errorf("--delete=image: exit %d, want 2 and nothing deleted", got)
+	}
+	resetCLI(t)
+	errOut.Reset()
+	rootCmd.SetIn(strings.NewReader("y\n"))
+	rootCmd.SetArgs([]string{"session", "--delete=all", "fox"})
+	want := `delete session "fox" and its images? Reference images are kept. [y/N] y` + "\n" +
+		`deleted session "fox" and 2 images` + "\n"
+	if err := rootCmd.Execute(); err != nil || errOut.String() != want {
+		t.Errorf("err = %v, stderr:\n%s\nwant:\n%s", err, errOut.String(), want)
+	}
+	if exists(fox) || exists(a) || exists(b) || !exists(ref) {
+		t.Errorf("after --delete=all: session %v, a %v, b %v, reference %v; want only the reference left",
+			exists(fox), exists(a), exists(b), exists(ref))
+	}
+
+	// A "file" that can't be deleted (a directory with something in it).
+	stuck := filepath.Join(dir, "stuck")
+	if err := os.MkdirAll(filepath.Join(stuck, "x"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cat := save("cat", interaction{ID: "1", File: stuck})
+	owl := save("owl", interaction{ID: "1", File: c})
+	resetCLI(t)
+	errOut.Reset()
+	rootCmd.SetArgs([]string{"sessions", "--delete=all", "--force"})
+	if err := rootCmd.Execute(); err == nil || !exists(cat) || exists(owl) || exists(c) ||
+		!strings.Contains(errOut.String(), `deleted session "owl" and 1 image`+"\n") {
+		t.Errorf("err = %v, cat kept %v, owl kept %v, c kept %v, stderr %q", err, exists(cat), exists(owl), exists(c), errOut.String())
+	}
+}

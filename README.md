@@ -214,6 +214,11 @@ NAME` drops the steps the last one wasn't built on (see above). `gemini-image se
 `gemini-image sessions --compact` do the same for every session; a session that fails (for example a
 damaged file) is reported at the end, and the others are still done. The generated images are kept.
 
+To delete the generated images along with the history, use `--delete=all` (with the `=`; a bare
+`--delete` is `--delete=history`). It deletes the image of every step, but not the reference images
+(the ones given with `-i`). Images that are already gone are skipped. If an image can't be deleted,
+the session's history is kept, so it still lists the images that are left.
+
 Deleting asks for confirmation first, naming the sessions; only `y` or `yes` deletes. Any other
 answer deletes nothing, which isn't an error (exit code 0). Without an answer, for example in a script
 with no input, nothing is deleted and the command fails. Add `-f`/`--force` to delete without asking:
@@ -222,6 +227,9 @@ with no input, nothing is deleted and the command fails. Add `-f`/`--force` to d
 $ gemini-image session --delete fox
 delete session "fox"? The images are kept. [y/N] y
 deleted session "fox"
+$ gemini-image session --delete=all cat
+delete session "cat" and its images? Reference images are kept. [y/N] y
+deleted session "cat" and 3 images
 $ gemini-image sessions --delete --force
 ```
 
